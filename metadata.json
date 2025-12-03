@@ -1,0 +1,9 @@
+{
+  "name": "UpFest Control",
+  "description": "Sistema de gestión de asistencia biométrica y validación de vestimenta para personal de salones de fiesta.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
