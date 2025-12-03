@@ -708,10 +708,10 @@ const ClockInModule = ({ user }: { user: User }) => {
              </div>
              
              <button onClick={() => initiateClockInSequence('CHECK_IN')} disabled={isClockedIn} className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition shadow-md ${isClockedIn ? 'bg-gray-100 text-gray-400' : 'bg-green-600 text-white hover:bg-green-700'}`}>
-                 <Clock /> Marcar Entrada
+                 <Clock /> Registrar Ingreso
              </button>
              <button onClick={() => initiateClockInSequence('CHECK_OUT')} disabled={!isClockedIn} className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition shadow-md ${!isClockedIn ? 'bg-gray-100 text-gray-400' : 'bg-orange-600 text-white hover:bg-orange-700'}`}>
-                 <LogOut /> Marcar Salida
+                 <LogOut /> Registrar Egreso
              </button>
           </div>
         </div>
