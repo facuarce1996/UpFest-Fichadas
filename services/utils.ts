@@ -1,9 +1,10 @@
 import { Location, User, LogEntry, Role, WorkSchedule } from "../types";
+import { supabase } from "./supabaseClient";
 
-// --- Time & Schedule Helpers ---
+// --- Time & Schedule Helpers (Mantienen lógica local) ---
 
 export const isWithinSchedule = (schedules: WorkSchedule[]): boolean => {
-  if (!schedules || schedules.length === 0) return true; // Si no tiene horario, se asume libre.
+  if (!schedules || schedules.length === 0) return true;
 
   const now = new Date();
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -15,34 +16,26 @@ export const isWithinSchedule = (schedules: WorkSchedule[]): boolean => {
   const currentTime = `${currentHours}:${currentMinutes}`;
 
   return schedules.some(slot => {
-    // Caso 1: El turno es hoy y no cruza medianoche (Ej: 09:00 a 18:00)
-    // O el turno es hoy y cruza medianoche (Ej: 20:00 a 04:00), estamos en la parte inicial (20:00 a 23:59)
     if (slot.day === todayName) {
       if (slot.start <= slot.end) {
-        // Horario normal
         return currentTime >= slot.start && currentTime <= slot.end;
       } else {
-        // Cruza medianoche (ej 22:00 - 06:00), checkear parte pre-medianoche
         return currentTime >= slot.start;
       }
     }
-
-    // Caso 2: El turno empezó ayer y cruzó medianoche (Ej: Ayer 20:00 a Hoy 04:00)
     if (slot.day === yesterdayName) {
       if (slot.start > slot.end) {
-        // Es un turno nocturno que termina hoy
         return currentTime <= slot.end;
       }
     }
-
     return false;
   });
 };
 
-// --- Geolocation ---
+// --- Geolocation (Mantiene lógica local) ---
 
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371e3; // Earth radius in meters
+  const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -70,124 +63,164 @@ export const getCurrentPosition = (): Promise<GeolocationPosition> => {
   });
 };
 
-// --- Storage (Mock Database) ---
+// --- SUPABASE DATA OPERATIONS ---
 
-// VERSION v8 TO RESET DATA WITH NEW STRUCTURE
-const KEYS = {
-  USERS: 'upfest_users_v7', 
-  LOCATIONS: 'upfest_locations_v3', // Bumped for new address fields
-  LOGS: 'upfest_logs_v7',
-  LOGO: 'upfest_company_logo_v2'
-};
+// Helpers para mapear de Snake Case (DB) a Camel Case (App)
+const mapUserFromDB = (u: any): User => ({
+  id: u.id,
+  legajo: u.legajo || '',
+  dni: u.dni,
+  password: u.password,
+  name: u.name,
+  role: u.role as Role,
+  dressCode: u.dress_code || '',
+  referenceImage: u.reference_image || null,
+  schedule: u.schedule || [],
+  assignedLocations: u.assigned_locations || []
+});
 
-// Seed Data
-const DEFAULT_LOCATIONS: Location[] = [
-  { id: 'central', name: 'Sucursal Central Obelisco', address: 'Av. 9 de Julio 1000', city: 'CABA', lat: -34.6037, lng: -58.3816, radiusMeters: 100 },
-  { id: 'hall_1', name: 'Salón Versalles', address: 'Av. Libertador 4500', city: 'Palermo', lat: -34.5800, lng: -58.4200, radiusMeters: 50 },
-  { id: 'hall_2', name: 'Palacio Leloir', address: 'Martín Fierro 3200', city: 'Ituzaingó', lat: -34.6000, lng: -58.5000, radiusMeters: 75 },
-];
+const mapLocationFromDB = (l: any): Location => ({
+  id: l.id,
+  name: l.name,
+  address: l.address || '',
+  city: l.city || '',
+  lat: l.lat,
+  lng: l.lng,
+  radiusMeters: l.radius_meters
+});
 
-const DEFAULT_USERS: User[] = [
-  { 
-    id: 'u_admin_gen', 
-    legajo: 'ADM-001',
-    dni: 'admin', 
-    password: 'admin', 
-    name: 'Admin General', 
-    role: Role.ADMIN, 
-    dressCode: 'Casual de negocios.',
-    referenceImage: null,
-    assignedLocations: ['central', 'hall_1', 'hall_2'],
-    schedule: [
-      { day: 'Lunes', start: '09:00', end: '18:00' },
-      { day: 'Martes', start: '09:00', end: '18:00' },
-      { day: 'Miércoles', start: '09:00', end: '18:00' },
-      { day: 'Jueves', start: '09:00', end: '18:00' },
-      { day: 'Viernes', start: '09:00', end: '18:00' },
-    ]
-  },
-  { 
-    id: 'u_auditor', 
-    legajo: 'AUD-204',
-    dni: 'auditor', 
-    password: '123', 
-    name: 'Juan Perez', 
-    role: Role.OTHER, 
-    dressCode: 'Uniforme de Staff.',
-    referenceImage: null,
-    assignedLocations: ['central'],
-    schedule: [
-      { day: 'Viernes', start: '20:00', end: '04:00' },
-      { day: 'Sábado', start: '20:00', end: '04:00' }
-    ]
-  },
-];
+const mapLogFromDB = (l: any): LogEntry => ({
+  id: l.id,
+  userId: l.user_id,
+  userName: l.user_name,
+  legajo: l.legajo || '',
+  timestamp: l.timestamp,
+  type: l.type,
+  locationId: l.location_id,
+  locationName: l.location_name,
+  locationStatus: l.location_status,
+  scheduleStatus: l.schedule_status,
+  dressCodeStatus: l.dress_code_status,
+  identityStatus: l.identity_status,
+  photoEvidence: l.photo_evidence,
+  aiFeedback: l.ai_feedback || ''
+});
 
-export const getStoredUsers = (): User[] => {
-  const stored = localStorage.getItem(KEYS.USERS);
-  if (!stored) {
-    localStorage.setItem(KEYS.USERS, JSON.stringify(DEFAULT_USERS));
-    return DEFAULT_USERS;
+// USERS
+export const fetchUsers = async (): Promise<User[]> => {
+  const { data, error } = await supabase.from('users').select('*');
+  if (error) {
+    console.error('Error fetching users:', error);
+    return [];
   }
-  return JSON.parse(stored);
+  return data.map(mapUserFromDB);
 };
 
-export const saveUser = (user: User) => {
-  const users = getStoredUsers();
-  const index = users.findIndex(u => u.id === user.id);
-  if (index >= 0) users[index] = user;
-  else users.push(user);
-  localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-};
+export const saveUser = async (user: User) => {
+  // Convert to DB format
+  const dbUser = {
+    // Si el ID es nuevo (generado por crypto en frontend), Supabase lo aceptará si es UUID válido,
+    // pero es mejor dejar que Supabase genere IDs si es un insert nuevo.
+    // Para simplificar la migración, intentaremos upsert usando el ID.
+    id: user.id.length < 10 ? undefined : user.id, // Hack simple: si es ID corto de ejemplo, dejar que DB genere
+    dni: user.dni,
+    password: user.password,
+    name: user.name,
+    role: user.role,
+    legajo: user.legajo,
+    dress_code: user.dressCode,
+    reference_image: user.referenceImage,
+    schedule: user.schedule,
+    assigned_locations: user.assignedLocations
+  };
 
-export const deleteUser = (userId: string) => {
-  const users = getStoredUsers().filter(u => u.id !== userId);
-  localStorage.setItem(KEYS.USERS, JSON.stringify(users));
-}
-
-export const getStoredLocations = (): Location[] => {
-  const stored = localStorage.getItem(KEYS.LOCATIONS);
-  if (!stored) {
-    localStorage.setItem(KEYS.LOCATIONS, JSON.stringify(DEFAULT_LOCATIONS));
-    return DEFAULT_LOCATIONS;
+  // Si el usuario ya existe (tiene ID válido UUID), hacemos update
+  if (user.id && user.id.length > 20) {
+      const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
+      if (error) console.error('Error updating user:', error);
+  } else {
+      // Insertar nuevo
+      const { error } = await supabase.from('users').insert(dbUser);
+      if (error) console.error('Error inserting user:', error);
   }
-  return JSON.parse(stored);
 };
 
-export const saveLocation = (location: Location) => {
-  const locs = getStoredLocations();
-  const index = locs.findIndex(l => l.id === location.id);
-  if (index >= 0) locs[index] = location;
-  else locs.push(location);
-  localStorage.setItem(KEYS.LOCATIONS, JSON.stringify(locs));
-};
-
-export const deleteLocation = (locId: string) => {
-  const locs = getStoredLocations().filter(l => l.id !== locId);
-  localStorage.setItem(KEYS.LOCATIONS, JSON.stringify(locs));
+export const deleteUser = async (userId: string) => {
+  const { error } = await supabase.from('users').delete().eq('id', userId);
+  if (error) console.error('Error deleting user:', error);
 }
 
-export const getLogs = (): LogEntry[] => {
-  const stored = localStorage.getItem(KEYS.LOGS);
-  return stored ? JSON.parse(stored) : [];
+// LOCATIONS
+export const fetchLocations = async (): Promise<Location[]> => {
+  const { data, error } = await supabase.from('locations').select('*');
+  if (error) {
+    console.error('Error fetching locations:', error);
+    return [];
+  }
+  return data.map(mapLocationFromDB);
 };
 
-export const addLog = (entry: LogEntry) => {
-  const logs = getLogs();
-  logs.unshift(entry); // Newest first
-  localStorage.setItem(KEYS.LOGS, JSON.stringify(logs));
+export const saveLocation = async (location: Location) => {
+  const dbLocation = {
+    name: location.name,
+    address: location.address,
+    city: location.city,
+    lat: location.lat,
+    lng: location.lng,
+    radius_meters: location.radiusMeters
+  };
+
+  if (location.id && location.id.length > 20) {
+      await supabase.from('locations').update(dbLocation).eq('id', location.id);
+  } else {
+      await supabase.from('locations').insert(dbLocation);
+  }
 };
 
-export const deleteLog = (logId: string) => {
-  const logs = getLogs().filter(l => l.id !== logId);
-  localStorage.setItem(KEYS.LOGS, JSON.stringify(logs));
-};
-
-// --- Logo Management ---
-export const getCompanyLogo = (): string | null => {
-  return localStorage.getItem(KEYS.LOGO);
+export const deleteLocation = async (locId: string) => {
+  await supabase.from('locations').delete().eq('id', locId);
 }
 
-export const saveCompanyLogo = (base64: string) => {
-  localStorage.setItem(KEYS.LOGO, base64);
+// LOGS
+export const fetchLogs = async (): Promise<LogEntry[]> => {
+  const { data, error } = await supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
+  if (error) {
+    console.error('Error fetching logs:', error);
+    return [];
+  }
+  return data.map(mapLogFromDB);
+};
+
+export const addLog = async (entry: LogEntry) => {
+  const dbLog = {
+    user_id: entry.userId,
+    user_name: entry.userName,
+    legajo: entry.legajo,
+    timestamp: entry.timestamp,
+    type: entry.type,
+    location_id: entry.locationId,
+    location_name: entry.locationName,
+    location_status: entry.locationStatus,
+    schedule_status: entry.scheduleStatus,
+    dress_code_status: entry.dressCodeStatus,
+    identity_status: entry.identityStatus,
+    photo_evidence: entry.photoEvidence,
+    ai_feedback: entry.aiFeedback
+  };
+
+  const { error } = await supabase.from('logs').insert(dbLog);
+  if (error) console.error('Error saving log:', error);
+};
+
+// Authentication
+export const authenticateUser = async (dni: string, password: string): Promise<User | null> => {
+    const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .or(`dni.eq.${dni},legajo.eq.${dni}`)
+        .eq('password', password)
+        .single();
+    
+    if (error || !data) return null;
+    return mapUserFromDB(data);
 }

@@ -4,8 +4,8 @@ import {
 } from './types';
 import { 
   getCurrentPosition, calculateDistance, isWithinSchedule,
-  getStoredUsers, getStoredLocations, getLogs, addLog, saveUser, deleteUser,
-  getCompanyLogo, saveCompanyLogo, deleteLog, saveLocation, deleteLocation
+  fetchUsers, fetchLocations, fetchLogs, addLog, saveUser, deleteUser,
+  authenticateUser, saveLocation, deleteLocation
 } from './services/utils';
 import { analyzeCheckIn } from './services/geminiService';
 import { 
@@ -172,17 +172,24 @@ const LoginView = ({ onLogin }: { onLogin: (u: User) => void }) => {
   const [dni, setDni] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const users = getStoredUsers();
-    // Simple login check
-    const user = users.find(u => (u.dni === dni || u.legajo === dni) && u.password === password);
+    setLoading(true);
+    setError('');
     
-    if (user) {
-      onLogin(user);
-    } else {
-      setError('Credenciales incorrectas');
+    try {
+        const user = await authenticateUser(dni, password);
+        if (user) {
+          onLogin(user);
+        } else {
+          setError('Credenciales incorrectas');
+        }
+    } catch (e) {
+        setError('Error de conexión');
+    } finally {
+        setLoading(false);
     }
   };
 
@@ -226,9 +233,10 @@ const LoginView = ({ onLogin }: { onLogin: (u: User) => void }) => {
 
           <button
             type="submit"
-            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-orange-200"
+            disabled={loading}
+            className={`w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-orange-200 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            Iniciar Sesión
+            {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
         </form>
 
@@ -331,7 +339,7 @@ const UserForm: React.FC<UserFormProps> = ({
   const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
   useEffect(() => {
-    setLocations(getStoredLocations());
+    fetchLocations().then(setLocations);
     if(initialData) {
       setFormData(prev => ({ ...prev, ...initialData }));
       setImagePreview(initialData.referenceImage || null);
@@ -377,7 +385,6 @@ const UserForm: React.FC<UserFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.dni) return;
-    // Ensure DNI doubles as legajo if legajo is empty
     if (!formData.legajo) formData.legajo = formData.dni;
     onSubmit(formData);
   };
@@ -531,7 +538,7 @@ const LocationForm: React.FC<LocationFormProps> = ({ initialData, onSubmit, subm
     if (!formData.name || !formData.address) return;
     
     onSubmit({
-        id: formData.id || crypto.randomUUID(),
+        id: formData.id || '', // Empty means new
         name: formData.name,
         address: formData.address,
         city: formData.city || '',
@@ -632,11 +639,14 @@ const ClockInModule = ({ user }: { user: User }) => {
   const [pendingAction, setPendingAction] = useState<'CHECK_IN' | 'CHECK_OUT' | null>(null);
 
   useEffect(() => {
-    setLocations(getStoredLocations());
-    const userLogs = getLogs().filter(l => l.userId === user.id && l.type !== 'BLOCKED');
-    if (userLogs.length > 0) {
-      setIsClockedIn(userLogs[0].type === 'CHECK_IN');
-    }
+    fetchLocations().then(setLocations);
+    // Fetch logs to check last status
+    fetchLogs().then(logs => {
+        const userLogs = logs.filter(l => l.userId === user.id && l.type !== 'BLOCKED');
+        if (userLogs.length > 0) {
+            setIsClockedIn(userLogs[0].type === 'CHECK_IN');
+        }
+    });
   }, [user.id, result]);
 
   const initiateClockInSequence = (type: 'CHECK_IN' | 'CHECK_OUT') => {
@@ -689,7 +699,7 @@ const ClockInModule = ({ user }: { user: User }) => {
         identityStatus: user.referenceImage ? (aiResponse.identityMatch ? 'MATCH' : 'NO_MATCH') : 'NO_REF',
         dressCodeStatus: aiResponse.dressCodeMatches ? 'PASS' : 'FAIL', aiFeedback: aiResponse.description
       };
-      addLog(finalEntry);
+      await addLog(finalEntry);
       setResult(finalEntry);
       setStep('RESULT');
     } catch (err) { setStep('DASHBOARD'); }
@@ -807,8 +817,8 @@ const LogsDashboard = () => {
     const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
 
     useEffect(() => {
-        setLogs(getLogs());
-        const interval = setInterval(() => setLogs(getLogs()), 3000);
+        fetchLogs().then(setLogs);
+        const interval = setInterval(() => fetchLogs().then(setLogs), 3000);
         return () => clearInterval(interval);
     }, []);
 
@@ -947,23 +957,23 @@ const LocationsDashboard = () => {
   const [formKey, setFormKey] = useState(0);
 
   useEffect(() => {
-    setLocations(getStoredLocations());
-    const interval = setInterval(() => setLocations(getStoredLocations()), 3000);
+    fetchLocations().then(setLocations);
+    const interval = setInterval(() => fetchLocations().then(setLocations), 3000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleSave = (loc: Location) => {
-    saveLocation(loc);
+  const handleSave = async (loc: Location) => {
+    await saveLocation(loc);
     setIsCreating(false);
     setEditingLocation(null);
     setFormKey(k => k + 1);
-    setLocations(getStoredLocations());
+    fetchLocations().then(setLocations);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if(window.confirm('¿Eliminar este salón?')) {
-        deleteLocation(id);
-        setLocations(getStoredLocations());
+        await deleteLocation(id);
+        fetchLocations().then(setLocations);
     }
   }
 
@@ -1078,15 +1088,15 @@ const AdminDashboard = ({
   const [createFormKey, setCreateFormKey] = useState(0);
 
   useEffect(() => {
-    setUsers(getStoredUsers());
-    setLocations(getStoredLocations());
-    const interval = setInterval(() => setUsers(getStoredUsers()), 3000);
+    fetchUsers().then(setUsers);
+    fetchLocations().then(setLocations);
+    const interval = setInterval(() => fetchUsers().then(setUsers), 3000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleCreateUser = (data: Partial<User>) => {
-    saveUser({
-      id: crypto.randomUUID(),
+  const handleCreateUser = async (data: Partial<User>) => {
+    await saveUser({
+      id: '', // Empty means new in Supabase logic
       legajo: data.legajo || data.dni || '',
       name: data.name || '',
       dni: data.dni || '', 
@@ -1099,15 +1109,15 @@ const AdminDashboard = ({
     });
     setCreateFormKey(k => k + 1);
     setIsCreating(false);
-    setUsers(getStoredUsers());
+    fetchUsers().then(setUsers);
   };
 
-  const handleUpdateUser = (data: Partial<User>) => {
+  const handleUpdateUser = async (data: Partial<User>) => {
     if (!data.id) return;
-    saveUser(data as User);
+    await saveUser(data as User);
     if (data.id === currentUserId) onUserUpdate(data as User);
     setEditingUser(null);
-    setUsers(getStoredUsers());
+    fetchUsers().then(setUsers);
   };
 
   // Helper to get location names
