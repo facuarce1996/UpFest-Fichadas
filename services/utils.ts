@@ -63,6 +63,52 @@ export const getCurrentPosition = (): Promise<GeolocationPosition> => {
   });
 };
 
+// --- SUPABASE STORAGE HELPERS ---
+
+// Convierte Base64 a Blob y lo sube al bucket 'fichadas'
+const uploadBase64Image = async (base64Data: string, folder: string): Promise<string | null> => {
+  try {
+    // 1. Limpiar cabecera del base64
+    const base64Clean = base64Data.replace(/^data:image\/\w+;base64,/, "");
+    
+    // 2. Convertir a buffer binario
+    const byteCharacters = atob(base64Clean);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+
+    // 3. Generar nombre único
+    const fileName = `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+
+    // 4. Subir a Supabase Storage (Bucket: 'fichadas')
+    const { data, error } = await supabase.storage
+      .from('fichadas')
+      .upload(fileName, blob, {
+        contentType: 'image/jpeg',
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Error uploading image:', error);
+      return null;
+    }
+
+    // 5. Obtener URL Pública
+    const { data: publicUrlData } = supabase.storage
+      .from('fichadas')
+      .getPublicUrl(fileName);
+
+    return publicUrlData.publicUrl;
+
+  } catch (error) {
+    console.error('Error processing image upload:', error);
+    return null;
+  }
+};
+
 // --- SUPABASE DATA OPERATIONS ---
 
 // Helpers para mapear de Snake Case (DB) a Camel Case (App)
@@ -117,19 +163,29 @@ export const fetchUsers = async (): Promise<User[]> => {
 };
 
 export const saveUser = async (user: User) => {
+  let referenceImageUrl = user.referenceImage;
+
+  // Si la imagen es Base64 (nueva subida), la subimos a Storage
+  if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
+    const uploadedUrl = await uploadBase64Image(user.referenceImage, 'users');
+    if (uploadedUrl) {
+      referenceImageUrl = uploadedUrl;
+    }
+  }
+
   // Convert to DB format
   const dbUser = {
     // Si el ID es nuevo (generado por crypto en frontend), Supabase lo aceptará si es UUID válido,
     // pero es mejor dejar que Supabase genere IDs si es un insert nuevo.
     // Para simplificar la migración, intentaremos upsert usando el ID.
-    id: user.id.length < 10 ? undefined : user.id, // Hack simple: si es ID corto de ejemplo, dejar que DB genere
+    id: user.id.length < 10 ? undefined : user.id, 
     dni: user.dni,
     password: user.password,
     name: user.name,
     role: user.role,
     legajo: user.legajo,
     dress_code: user.dressCode,
-    reference_image: user.referenceImage,
+    reference_image: referenceImageUrl, // Guardamos URL o null
     schedule: user.schedule,
     assigned_locations: user.assignedLocations
   };
@@ -192,6 +248,16 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
 };
 
 export const addLog = async (entry: LogEntry) => {
+  let photoUrl = entry.photoEvidence;
+
+  // Subir evidencia a Storage si es Base64
+  if (entry.photoEvidence && entry.photoEvidence.startsWith('data:image')) {
+    const uploadedUrl = await uploadBase64Image(entry.photoEvidence, 'evidence');
+    if (uploadedUrl) {
+      photoUrl = uploadedUrl;
+    }
+  }
+
   const dbLog = {
     user_id: entry.userId,
     user_name: entry.userName,
@@ -204,7 +270,7 @@ export const addLog = async (entry: LogEntry) => {
     schedule_status: entry.scheduleStatus,
     dress_code_status: entry.dressCodeStatus,
     identity_status: entry.identityStatus,
-    photo_evidence: entry.photoEvidence,
+    photo_evidence: photoUrl, // Guardamos la URL
     ai_feedback: entry.aiFeedback
   };
 
