@@ -630,7 +630,7 @@ const LocationForm: React.FC<LocationFormProps> = ({ initialData, onSubmit, subm
 
 // --- Main Components ---
 
-const ClockInModule = ({ user }: { user: User }) => {
+const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => void }) => {
   const [locations, setLocations] = useState<Location[]>([]);
   const [step, setStep] = useState<'DASHBOARD' | 'OFF_SCHEDULE_WARNING' | 'VALIDATING_LOC' | 'CAMERA' | 'PROCESSING' | 'RESULT'>('DASHBOARD');
   const [statusMsg, setStatusMsg] = useState('');
@@ -802,7 +802,7 @@ const ClockInModule = ({ user }: { user: User }) => {
                            <span className={`font-bold text-sm ${result.identityStatus !== 'NO_MATCH' ? 'text-green-600' : 'text-red-500'}`}>{result.identityStatus === 'MATCH' ? 'Aprobada' : 'Revisar'}</span>
                        </div>
                   </div>
-                  <button onClick={reset} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">Cerrar</button>
+                  <button onClick={onFinished} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">Finalizar</button>
               </div>
           </div>
       )}
@@ -1241,7 +1241,9 @@ export default function App() {
       />
       
       <main className="flex-1">
-        {activeTab === 'clock' && currentUser.role !== Role.ADMIN && <ClockInModule user={currentUser} />}
+        {activeTab === 'clock' && currentUser.role !== Role.ADMIN && (
+          <ClockInModule user={currentUser} onFinished={() => setCurrentUser(null)} />
+        )}
         {activeTab === 'clock' && currentUser.role === Role.ADMIN && (
              <div className="flex flex-col gap-6">
                  {/* Admin can see the dashboard BUT also has a button to check in themselves */}
@@ -1259,7 +1261,9 @@ export default function App() {
                  <LogsDashboard />
              </div>
         )}
-        {activeTab === 'self-clock' && <ClockInModule user={currentUser} />}
+        {activeTab === 'self-clock' && (
+          <ClockInModule user={currentUser} onFinished={() => setCurrentUser(null)} />
+        )}
 
         {activeTab === 'admin' && currentUser.role === Role.ADMIN && (
           <AdminDashboard currentUserId={currentUser.id} onUserUpdate={setCurrentUser} />
