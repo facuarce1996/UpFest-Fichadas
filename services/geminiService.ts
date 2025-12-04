@@ -34,9 +34,17 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
+    // Vite reemplazará esto por el string real durante el build
     const apiKey = process.env.API_KEY;
+    
     if (!apiKey) {
-      throw new Error("API Key not found");
+      console.error("API Key is missing. Please check Vercel environment variables.");
+      return {
+        identityMatch: false,
+        dressCodeMatches: false,
+        description: "Error de configuración: Falta la API Key del sistema.",
+        confidence: 0
+      };
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -89,7 +97,7 @@ export const analyzeCheckIn = async (
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash", // Good for multimodal
+      model: "gemini-2.5-flash", 
       contents: {
         parts: parts,
       },
@@ -112,7 +120,7 @@ export const analyzeCheckIn = async (
     return {
       identityMatch: false,
       dressCodeMatches: false,
-      description: "Error conectando con el servicio de IA. Se requiere verificación manual.",
+      description: "Error conectando con el servicio de IA. Intente nuevamente.",
       confidence: 0
     };
   }
