@@ -675,27 +675,46 @@ const LocationForm: React.FC<LocationFormProps> = ({ initialData, onSubmit, subm
 // --- Config Dashboard ---
 
 const ConfigDashboard = ({ onLogoUpdate }: { onLogoUpdate: () => void }) => {
-    const [logo, setLogo] = useState<string | null>(null);
+    const [logoUrl, setLogoUrl] = useState<string | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [pendingBase64, setPendingBase64] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [successMsg, setSuccessMsg] = useState('');
 
     useEffect(() => {
-        fetchCompanyLogo().then(setLogo);
+        fetchCompanyLogo().then(url => {
+            setLogoUrl(url);
+            setPreviewUrl(url);
+        });
     }, []);
 
-    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             const reader = new FileReader();
-            reader.onloadend = async () => {
-                setLoading(true);
+            reader.onloadend = () => {
                 const result = reader.result as string;
-                setLogo(result); // Preview inmediato
-                await saveCompanyLogo(result);
-                setLoading(false);
-                onLogoUpdate(); // Notificar a App para recargar header
+                setPreviewUrl(result);
+                setPendingBase64(result);
+                setSuccessMsg('');
             };
             reader.readAsDataURL(file);
         }
+    };
+
+    const handleSave = async () => {
+        if (!pendingBase64) return;
+        setLoading(true);
+        const newUrl = await saveCompanyLogo(pendingBase64);
+        if (newUrl) {
+            setLogoUrl(newUrl);
+            setPendingBase64(null); // Reset pending state
+            setSuccessMsg('Logo actualizado correctamente.');
+            onLogoUpdate(); // Refresh header
+        } else {
+            setSuccessMsg('Error al guardar el logo.');
+        }
+        setLoading(false);
     };
 
     return (
@@ -708,27 +727,57 @@ const ConfigDashboard = ({ onLogoUpdate }: { onLogoUpdate: () => void }) => {
                 </h2>
                 <div className="flex flex-col sm:flex-row items-center gap-8">
                     <div className="flex-shrink-0">
-                        <div className="w-32 h-32 bg-slate-100 rounded-full flex items-center justify-center overflow-hidden border-2 border-slate-200">
-                            {logo ? (
-                                <img src={logo} alt="Logo Empresa" className="w-full h-full object-contain p-2" />
+                        <div className="w-32 h-32 bg-slate-100 rounded-full flex items-center justify-center overflow-hidden border-2 border-slate-200 relative">
+                            {previewUrl ? (
+                                <img src={previewUrl} alt="Logo Empresa" className="w-full h-full object-contain p-2" />
                             ) : (
                                 <span className="text-slate-400 font-bold text-2xl">LOGO</span>
                             )}
                         </div>
                     </div>
-                    <div className="flex-1">
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                            Cargar Logo de la Empresa
-                        </label>
-                        <p className="text-sm text-slate-500 mb-4">
-                            Este logo se mostrará en la pantalla de inicio de sesión y en la barra superior.
-                            Se recomienda una imagen en formato PNG con fondo transparente.
-                        </p>
-                        <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition cursor-pointer ${loading ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>
-                            {loading ? <div className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full"></div> : <Upload size={18} />}
-                            {loading ? 'Subiendo...' : 'Seleccionar Archivo'}
-                            <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} disabled={loading} />
-                        </label>
+                    <div className="flex-1 space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                                Cargar Logo de la Empresa
+                            </label>
+                            <p className="text-sm text-slate-500 mb-4">
+                                Este logo se mostrará en la pantalla de inicio de sesión y en la barra superior.
+                                Se recomienda una imagen en formato PNG con fondo transparente.
+                            </p>
+                            <label className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50 transition cursor-pointer">
+                                <Upload size={18} />
+                                Seleccionar Archivo
+                                <input type="file" accept="image/*" className="hidden" onChange={handleFileSelect} disabled={loading} />
+                            </label>
+                        </div>
+
+                        {pendingBase64 && (
+                            <div className="pt-2">
+                                <button 
+                                    onClick={handleSave}
+                                    disabled={loading}
+                                    className={`inline-flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition shadow-md ${loading ? 'bg-slate-400 cursor-not-allowed text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}
+                                >
+                                    {loading ? (
+                                        <>
+                                            <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+                                            Guardando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save size={18} />
+                                            Guardar Cambios
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        )}
+                        
+                        {successMsg && (
+                            <div className={`text-sm font-medium p-2 rounded ${successMsg.includes('Error') ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
+                                {successMsg}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1082,7 +1131,7 @@ const LogsDashboard = () => {
                                         <div className="text-xs font-bold uppercase mb-1 flex items-center gap-1">
                                             {selectedLog.dressCodeStatus === 'PASS' ? <CheckCircle size={12}/> : <AlertTriangle size={12}/>} Vestimenta
                                         </div>
-                                        <span className={`text-sm font-bold ${selectedLog.dressCodeStatus === 'PASS' ? 'text-green-700' : 'text-orange-700'}`}>
+                                        <span className={`text-sm font-bold ${selectedLog.dressCodeStatus === 'PASS' ? 'text-orange-700' : 'text-orange-700'}`}>
                                             {selectedLog.dressCodeStatus === 'PASS' ? 'Correcta' : 'Revisar'}
                                         </span>
                                     </div>
