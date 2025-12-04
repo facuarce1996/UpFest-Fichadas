@@ -103,7 +103,8 @@ export const getCurrentPosition = (): Promise<GeolocationPosition> => {
 // --- SUPABASE STORAGE HELPERS ---
 
 // Convierte Base64 a Blob y lo sube al bucket 'fichadas'
-const uploadBase64Image = async (base64Data: string, folder: string): Promise<string | null> => {
+// Ahora permite nombres de archivo personalizados para mejor organización
+const uploadBase64Image = async (base64Data: string, folder: string, customFileName?: string): Promise<string | null> => {
   try {
     // 1. Limpiar cabecera del base64
     const base64Clean = base64Data.replace(/^data:image\/\w+;base64,/, "");
@@ -117,31 +118,37 @@ const uploadBase64Image = async (base64Data: string, folder: string): Promise<st
     const byteArray = new Uint8Array(byteNumbers);
     const blob = new Blob([byteArray], { type: 'image/jpeg' });
 
-    // 3. Generar nombre único
-    const fileName = `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+    // 3. Generar nombre único si no se provee uno
+    const finalFileName = customFileName 
+        ? `${folder}/${customFileName}`
+        : `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
 
     // 4. Subir a Supabase Storage (Bucket: 'fichadas')
     const { data, error } = await supabase.storage
       .from('fichadas')
-      .upload(fileName, blob, {
+      .upload(finalFileName, blob, {
         contentType: 'image/jpeg',
-        upsert: false
+        upsert: true 
       });
 
     if (error) {
-      console.error('Error uploading image:', error);
+      console.error('Error uploading image to Supabase:', error);
+      // Intentar mostrar detalles del error
+      if ((error as any).statusCode === '404') {
+          console.error("Bucket 'fichadas' not found. Please create it.");
+      }
       return null;
     }
 
     // 5. Obtener URL Pública
     const { data: publicUrlData } = supabase.storage
       .from('fichadas')
-      .getPublicUrl(fileName);
+      .getPublicUrl(finalFileName);
 
     return publicUrlData.publicUrl;
 
   } catch (error) {
-    console.error('Error processing image upload:', error);
+    console.error('Error processing image upload logic:', error);
     return null;
   }
 };
@@ -193,8 +200,13 @@ const mapLogFromDB = (l: any): LogEntry => ({
 export const fetchUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase.from('users').select('*');
   if (error) {
-    console.error('Error fetching users:', error);
-    return [];
+      // Si la tabla no existe, no crashear, devolver vacío.
+      if (error.code === '42P01') {
+          console.warn("Table 'users' does not exist yet.");
+          return [];
+      }
+      console.error('Error fetching users:', error);
+      return [];
   }
   return data.map(mapUserFromDB);
 };
@@ -204,7 +216,9 @@ export const saveUser = async (user: User) => {
 
   // Si la imagen es Base64 (nueva subida), la subimos a Storage
   if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
-    const uploadedUrl = await uploadBase64Image(user.referenceImage, 'users');
+    // Usamos el ID o DNI para el nombre del archivo, para que sea ordenado
+    const fileName = `${user.dni}_ref_${Date.now()}.jpg`;
+    const uploadedUrl = await uploadBase64Image(user.referenceImage, 'users', fileName);
     if (uploadedUrl) {
       referenceImageUrl = uploadedUrl;
     }
@@ -212,9 +226,6 @@ export const saveUser = async (user: User) => {
 
   // Convert to DB format
   const dbUser = {
-    // Si el ID es nuevo (generado por crypto en frontend), Supabase lo aceptará si es UUID válido,
-    // pero es mejor dejar que Supabase genere IDs si es un insert nuevo.
-    // Para simplificar la migración, intentaremos upsert usando el ID.
     id: user.id.length < 10 ? undefined : user.id, 
     dni: user.dni,
     password: user.password,
@@ -222,17 +233,15 @@ export const saveUser = async (user: User) => {
     role: user.role,
     legajo: user.legajo,
     dress_code: user.dressCode,
-    reference_image: referenceImageUrl, // Guardamos URL o null
+    reference_image: referenceImageUrl,
     schedule: user.schedule,
     assigned_locations: user.assignedLocations
   };
 
-  // Si el usuario ya existe (tiene ID válido UUID), hacemos update
   if (user.id && user.id.length > 20) {
       const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
       if (error) console.error('Error updating user:', error);
   } else {
-      // Insertar nuevo
       const { error } = await supabase.from('users').insert(dbUser);
       if (error) console.error('Error inserting user:', error);
   }
@@ -274,10 +283,11 @@ export const deleteLocation = async (locId: string) => {
   await supabase.from('locations').delete().eq('id', locId);
 }
 
-// LOGS
+// LOGS (FICHADAS)
 export const fetchLogs = async (): Promise<LogEntry[]> => {
   const { data, error } = await supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
   if (error) {
+    if (error.code === '42P01') return [];
     console.error('Error fetching logs:', error);
     return [];
   }
@@ -289,9 +299,22 @@ export const addLog = async (entry: LogEntry) => {
 
   // Subir evidencia a Storage si es Base64
   if (entry.photoEvidence && entry.photoEvidence.startsWith('data:image')) {
-    const uploadedUrl = await uploadBase64Image(entry.photoEvidence, 'evidence');
+    // Crear estructura de carpetas: evidence / AÑO / MES / usuario_fecha.jpg
+    const dateObj = new Date();
+    const year = dateObj.getFullYear();
+    const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+    const folderPath = `evidence/${year}/${month}`;
+    
+    // Nombre de archivo descriptivo
+    const fileName = `${entry.userName.replace(/\s+/g, '_')}_${entry.type}_${Date.now()}.jpg`;
+    
+    const uploadedUrl = await uploadBase64Image(entry.photoEvidence, folderPath, fileName);
+    
     if (uploadedUrl) {
+      console.log("Fichada image uploaded successfully:", uploadedUrl);
       photoUrl = uploadedUrl;
+    } else {
+      console.warn("Failed to upload fichada image. Saving base64 directly to DB (not recommended for large scale).");
     }
   }
 
@@ -307,7 +330,7 @@ export const addLog = async (entry: LogEntry) => {
     schedule_status: entry.scheduleStatus,
     dress_code_status: entry.dressCodeStatus,
     identity_status: entry.identityStatus,
-    photo_evidence: photoUrl, // Guardamos la URL
+    photo_evidence: photoUrl, 
     ai_feedback: entry.aiFeedback
   };
 
@@ -324,13 +347,21 @@ export const fetchCompanyLogo = async (): Promise<string | null> => {
     .eq('key', 'company_logo')
     .single();
   
-  if (error || !data) return null;
-  return data.value;
+  if (error) {
+      if (error.code === '42P01') {
+          console.error("Tabla 'app_settings' no existe. Ejecuta el SQL de Setup.");
+      }
+      return null;
+  }
+  return data ? data.value : null;
 };
 
 export const saveCompanyLogo = async (base64Image: string): Promise<string | null> => {
    // Subir a Storage
-   const uploadedUrl = await uploadBase64Image(base64Image, 'config');
+   // Usamos un nombre fijo o timestamp para el logo
+   const fileName = `company_logo_${Date.now()}.jpg`;
+   const uploadedUrl = await uploadBase64Image(base64Image, 'config', fileName);
+   
    if (!uploadedUrl) return null;
 
    // Guardar en DB
