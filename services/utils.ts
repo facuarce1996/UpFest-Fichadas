@@ -32,6 +32,43 @@ export const isWithinSchedule = (schedules: WorkSchedule[]): boolean => {
   });
 };
 
+export const getScheduleDelayInfo = (schedules: WorkSchedule[]): string | null => {
+    if (!schedules || schedules.length === 0) return null;
+
+    const now = new Date();
+    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const todayName = days[now.getDay()];
+    
+    // Buscar el horario de hoy
+    const todaySchedule = schedules.find(s => s.day === todayName);
+    
+    if (!todaySchedule) return null;
+
+    const currentHours = now.getHours();
+    const currentMinutes = now.getMinutes();
+    
+    const [startHours, startMinutes] = todaySchedule.start.split(':').map(Number);
+    
+    // Convertir todo a minutos para comparar
+    const nowTotalMinutes = currentHours * 60 + currentMinutes;
+    const startTotalMinutes = startHours * 60 + startMinutes;
+    
+    // Si llegó tarde (más de 15 mins de tolerancia por ejemplo, o estricto > 0)
+    if (nowTotalMinutes > startTotalMinutes) {
+        const diffMinutes = nowTotalMinutes - startTotalMinutes;
+        const hoursLate = Math.floor(diffMinutes / 60);
+        const minsLate = diffMinutes % 60;
+        
+        let delayText = "";
+        if (hoursLate > 0) delayText += `${hoursLate} hrs `;
+        delayText += `${minsLate} mins`;
+
+        return `Horario asignado: ${todaySchedule.start}. Demora: ${delayText}`;
+    }
+
+    return null;
+}
+
 // --- Geolocation (Mantiene lógica local) ---
 
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -276,6 +313,37 @@ export const addLog = async (entry: LogEntry) => {
 
   const { error } = await supabase.from('logs').insert(dbLog);
   if (error) console.error('Error saving log:', error);
+};
+
+// APP CONFIG (LOGO)
+
+export const fetchCompanyLogo = async (): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'company_logo')
+    .single();
+  
+  if (error || !data) return null;
+  return data.value;
+};
+
+export const saveCompanyLogo = async (base64Image: string): Promise<string | null> => {
+   // Subir a Storage
+   const uploadedUrl = await uploadBase64Image(base64Image, 'config');
+   if (!uploadedUrl) return null;
+
+   // Guardar en DB
+   const { error } = await supabase
+     .from('app_settings')
+     .upsert({ key: 'company_logo', value: uploadedUrl });
+   
+   if (error) {
+     console.error('Error updating company logo:', error);
+     return null;
+   }
+   
+   return uploadedUrl;
 };
 
 // Authentication

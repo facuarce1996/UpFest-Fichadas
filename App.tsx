@@ -3,14 +3,14 @@ import {
   Role, Location, User, LogEntry, WorkSchedule 
 } from './types';
 import { 
-  getCurrentPosition, calculateDistance, isWithinSchedule,
+  getCurrentPosition, calculateDistance, isWithinSchedule, getScheduleDelayInfo,
   fetchUsers, fetchLocations, fetchLogs, addLog, saveUser, deleteUser,
-  authenticateUser, saveLocation, deleteLocation
+  authenticateUser, saveLocation, deleteLocation, fetchCompanyLogo, saveCompanyLogo
 } from './services/utils';
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu, Settings
 } from 'lucide-react';
 
 // --- Sub-Components ---
@@ -19,12 +19,14 @@ const Header = ({
   activeTab, 
   setActiveTab, 
   currentUser, 
-  onLogout
+  onLogout,
+  logoUrl
 }: { 
   activeTab: string, 
   setActiveTab: (t: string) => void,
   currentUser: User | null,
-  onLogout: () => void
+  onLogout: () => void,
+  logoUrl: string | null
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -34,8 +36,12 @@ const Header = ({
         <div className="flex justify-between h-16">
           <div className="flex items-center gap-4 sm:gap-8">
               <div className="flex-shrink-0 flex items-center gap-2">
-                  <div className="w-8 h-8 bg-slate-900 text-white rounded-full flex items-center justify-center font-bold">UP</div>
-                  <span className="font-bold text-xl text-slate-800">UpFest</span>
+                  {logoUrl ? (
+                      <img src={logoUrl} alt="Logo" className="h-10 w-auto object-contain" />
+                  ) : (
+                      <div className="w-8 h-8 bg-slate-900 text-white rounded-full flex items-center justify-center font-bold">UP</div>
+                  )}
+                  <span className="font-bold text-xl text-slate-800 hidden sm:block">UpFest</span>
               </div>
             
               {currentUser && (
@@ -74,6 +80,17 @@ const Header = ({
                                   }`}
                               >
                                   <span className="flex items-center gap-2"><Building size={16}/> Salones</span>
+                              </button>
+
+                              <button
+                                  onClick={() => setActiveTab('config')}
+                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                      activeTab === 'config' 
+                                      ? 'bg-orange-600 text-white shadow-md shadow-orange-200' 
+                                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                                  }`}
+                              >
+                                  <span className="flex items-center gap-2"><Settings size={16}/> Config</span>
                               </button>
                           </>
                       )}
@@ -151,6 +168,17 @@ const Header = ({
                     >
                         <Building size={20}/> Salones
                     </button>
+                    
+                    <button
+                        onClick={() => { setActiveTab('config'); setIsMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-3 rounded-lg text-base font-medium flex items-center gap-3 transition-colors ${
+                            activeTab === 'config' 
+                            ? 'bg-orange-50 text-orange-700' 
+                            : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                    >
+                        <Settings size={20}/> Configuración
+                    </button>
                 </>
             )}
 
@@ -168,7 +196,7 @@ const Header = ({
   );
 };
 
-const LoginView = ({ onLogin }: { onLogin: (u: User) => void }) => {
+const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: string | null }) => {
   const [dni, setDni] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -197,9 +225,13 @@ const LoginView = ({ onLogin }: { onLogin: (u: User) => void }) => {
     <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-50">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 space-y-8 border border-slate-100">
         <div className="text-center">
-          <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-4 text-white font-bold text-2xl shadow-xl">
-            UP
-          </div>
+          {logoUrl ? (
+               <img src={logoUrl} alt="Logo Empresa" className="h-20 w-auto mx-auto mb-4 object-contain" />
+          ) : (
+               <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-4 text-white font-bold text-2xl shadow-xl">
+                 UP
+               </div>
+          )}
           <h2 className="text-2xl font-bold text-slate-900">Bienvenido</h2>
           <p className="text-slate-500">Sistema de Gestión de Personal</p>
         </div>
@@ -436,6 +468,18 @@ const UserForm: React.FC<UserFormProps> = ({
       </div>
 
       <div>
+         <label className="text-sm font-bold text-slate-700 mb-1 block">Código de Vestimenta</label>
+         <textarea
+            value={formData.dressCode || ''}
+            onChange={e => setFormData({...formData, dressCode: e.target.value})}
+            className="w-full bg-white text-slate-900 border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none"
+            placeholder="Ej: Camisa blanca y pantalón de vestir negro."
+            rows={2}
+         />
+         <p className="text-xs text-slate-400 mt-1">Este texto será usado por la IA para validar la foto.</p>
+      </div>
+
+      <div>
          <label className="text-sm font-bold text-slate-700 mb-1 block">Foto de Referencia (Biometría)</label>
          <div className="flex items-center gap-3">
            <label className="cursor-pointer bg-orange-50 hover:bg-orange-100 text-orange-700 font-semibold px-4 py-2 rounded-lg text-sm flex items-center gap-2 border border-orange-200 transition">
@@ -628,6 +672,70 @@ const LocationForm: React.FC<LocationFormProps> = ({ initialData, onSubmit, subm
   )
 }
 
+// --- Config Dashboard ---
+
+const ConfigDashboard = ({ onLogoUpdate }: { onLogoUpdate: () => void }) => {
+    const [logo, setLogo] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        fetchCompanyLogo().then(setLogo);
+    }, []);
+
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                setLoading(true);
+                const result = reader.result as string;
+                setLogo(result); // Preview inmediato
+                await saveCompanyLogo(result);
+                setLoading(false);
+                onLogoUpdate(); // Notificar a App para recargar header
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    return (
+        <div className="max-w-4xl mx-auto p-6">
+            <h1 className="text-2xl font-bold text-slate-800 mb-6">Configuración del Sistema</h1>
+            
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <ImageIcon size={20} /> Imagen Corporativa
+                </h2>
+                <div className="flex flex-col sm:flex-row items-center gap-8">
+                    <div className="flex-shrink-0">
+                        <div className="w-32 h-32 bg-slate-100 rounded-full flex items-center justify-center overflow-hidden border-2 border-slate-200">
+                            {logo ? (
+                                <img src={logo} alt="Logo Empresa" className="w-full h-full object-contain p-2" />
+                            ) : (
+                                <span className="text-slate-400 font-bold text-2xl">LOGO</span>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex-1">
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Cargar Logo de la Empresa
+                        </label>
+                        <p className="text-sm text-slate-500 mb-4">
+                            Este logo se mostrará en la pantalla de inicio de sesión y en la barra superior.
+                            Se recomienda una imagen en formato PNG con fondo transparente.
+                        </p>
+                        <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition cursor-pointer ${loading ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'}`}>
+                            {loading ? <div className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full"></div> : <Upload size={18} />}
+                            {loading ? 'Subiendo...' : 'Seleccionar Archivo'}
+                            <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} disabled={loading} />
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- Main Components ---
 
 const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => void }) => {
@@ -699,10 +807,29 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
         identityStatus: user.referenceImage ? (aiResponse.identityMatch ? 'MATCH' : 'NO_MATCH') : 'NO_REF',
         dressCodeStatus: aiResponse.dressCodeMatches ? 'PASS' : 'FAIL', aiFeedback: aiResponse.description
       };
-      await addLog(finalEntry);
+      // We do NOT save automatically here anymore, wait for confirmation
       setResult(finalEntry);
       setStep('RESULT');
     } catch (err) { setStep('DASHBOARD'); }
+  };
+  
+  const handleFinalSave = async () => {
+      if (result) {
+          await addLog(result);
+          onFinished();
+      }
+  };
+  
+  const handleRetryPhoto = () => {
+      setStep('CAMERA');
+  };
+  
+  const handleSaveWithIncident = async () => {
+      if (result) {
+          // Force save even with issues
+          await addLog(result);
+          onFinished();
+      }
   };
 
   const getTodayScheduleDisplay = () => {
@@ -785,7 +912,12 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                   <div className="space-y-2 text-left bg-slate-50 p-4 rounded-lg">
                        <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Horario</span>
-                           <span className="font-mono font-bold text-slate-800">{new Date(result.timestamp).toLocaleTimeString()}</span>
+                           <div className="text-right">
+                               <span className="font-mono font-bold text-slate-800 block">{new Date(result.timestamp).toLocaleTimeString()}</span>
+                               {getScheduleDelayInfo(user.schedule) && (
+                                   <span className="text-xs text-orange-600 font-medium block">{getScheduleDelayInfo(user.schedule)}</span>
+                               )}
+                           </div>
                        </div>
                        <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Estado Horario</span>
@@ -795,14 +927,34 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                        </div>
                        <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Ubicación</span>
-                           <span className={`font-bold text-sm ${result.locationStatus === 'VALID' ? 'text-green-600' : 'text-red-500'}`}>{result.locationStatus === 'VALID' ? 'Correcta' : 'Incorrecta'}</span>
+                           <div className="text-right">
+                               <span className={`font-bold text-sm block ${result.locationStatus === 'VALID' ? 'text-green-600' : 'text-red-500'}`}>
+                                   {result.locationStatus === 'VALID' ? 'Correcta' : 'Incorrecta'}
+                               </span>
+                               <span className="text-xs text-slate-400 block">{result.locationName}</span>
+                           </div>
                        </div>
                        <div className="flex justify-between">
                            <span className="text-slate-500 text-sm">Biometría</span>
-                           <span className={`font-bold text-sm ${result.identityStatus !== 'NO_MATCH' ? 'text-green-600' : 'text-red-500'}`}>{result.identityStatus === 'MATCH' ? 'Aprobada' : 'Revisar'}</span>
+                           <span className={`font-bold text-sm ${result.identityStatus === 'MATCH' ? 'text-green-600' : 'text-red-500'}`}>{result.identityStatus === 'MATCH' ? 'Aprobada' : 'Revisar'}</span>
                        </div>
                   </div>
-                  <button onClick={onFinished} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">Finalizar</button>
+                  
+                  {/* Actions based on result */}
+                  {result.identityStatus === 'MATCH' ? (
+                      <button onClick={handleFinalSave} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">
+                          Finalizar
+                      </button>
+                  ) : (
+                      <div className="space-y-3">
+                          <button onClick={handleRetryPhoto} className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700">
+                              Reintentar Foto
+                          </button>
+                          <button onClick={handleSaveWithIncident} className="w-full bg-transparent text-slate-500 py-3 rounded-lg font-medium hover:bg-slate-50 text-sm">
+                              Fichar con Incidencia
+                          </button>
+                      </div>
+                  )}
               </div>
           </div>
       )}
@@ -1221,12 +1373,27 @@ const AdminDashboard = ({
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('clock');
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  // Fetch logo on initial load
+  useEffect(() => {
+    fetchCompanyLogo().then(setLogoUrl);
+  }, []);
 
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
-        <Header activeTab={activeTab} setActiveTab={setActiveTab} currentUser={null} onLogout={() => {}} />
-        <LoginView onLogin={(user) => { setCurrentUser(user); setActiveTab(user.role === Role.ADMIN ? 'admin' : 'clock'); }} />
+        <Header 
+            activeTab={activeTab} 
+            setActiveTab={setActiveTab} 
+            currentUser={null} 
+            onLogout={() => {}} 
+            logoUrl={logoUrl}
+        />
+        <LoginView 
+            onLogin={(user) => { setCurrentUser(user); setActiveTab(user.role === Role.ADMIN ? 'admin' : 'clock'); }} 
+            logoUrl={logoUrl}
+        />
       </div>
     );
   }
@@ -1238,6 +1405,7 @@ export default function App() {
         setActiveTab={setActiveTab} 
         currentUser={currentUser}
         onLogout={() => setCurrentUser(null)}
+        logoUrl={logoUrl}
       />
       
       <main className="flex-1">
@@ -1270,6 +1438,10 @@ export default function App() {
         )}
         {activeTab === 'locations' && currentUser.role === Role.ADMIN && (
           <LocationsDashboard />
+        )}
+        
+        {activeTab === 'config' && currentUser.role === Role.ADMIN && (
+          <ConfigDashboard onLogoUpdate={() => fetchCompanyLogo().then(setLogoUrl)} />
         )}
       </main>
     </div>
