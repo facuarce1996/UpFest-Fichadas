@@ -87,8 +87,14 @@ const Header = ({
                       <span className="text-sm font-bold text-gray-800">{currentUser.name}</span>
                       <span className="text-xs text-gray-500">{currentUser.role}</span>
                   </div>
-                  <button onClick={onLogout} className="p-2 text-gray-400 hover:text-red-600 transition">
+                  
+                  <button 
+                    onClick={onLogout} 
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
+                    title="Cerrar Sesión"
+                  >
                       <LogOut size={20} />
+                      <span className="hidden lg:inline text-sm font-medium">Salir</span>
                   </button>
                   
                   {/* Mobile Menu Button */}
@@ -147,6 +153,15 @@ const Header = ({
                     </button>
                 </>
             )}
+
+            <div className="border-t border-gray-100 pt-2 mt-2">
+                <button
+                    onClick={() => { onLogout(); setIsMobileMenuOpen(false); }}
+                    className="w-full text-left px-3 py-3 rounded-lg text-base font-medium flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors"
+                >
+                    <LogOut size={20}/> Cerrar Sesión
+                </button>
+            </div>
         </div>
       )}
     </header>
