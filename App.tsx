@@ -10,7 +10,7 @@ import {
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu, Settings
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu, Settings, ChevronRight
 } from 'lucide-react';
 
 // --- Sub-Components ---
@@ -344,7 +344,7 @@ const CameraView = ({ onCapture, onCancel }: { onCapture: (img: string) => void,
   );
 };
 
-// --- User Form Component (Updated to match design) ---
+// --- User Form Component ---
 
 interface UserFormProps { 
   initialData?: Partial<User>; 
@@ -1023,124 +1023,158 @@ const LogsDashboard = () => {
         return () => clearInterval(interval);
     }, []);
 
+    // Helper to generate fake hash for visual fidelity
+    const getShortHash = (id: string) => id.substring(0, 16);
+
     return (
         <div className="max-w-7xl mx-auto p-6">
             <h1 className="text-2xl font-bold text-slate-800 mb-6">Historial de Fichadas</h1>
             
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="bg-white border-b border-slate-100">
-                                <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Hora / Día</th>
-                                <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Empleado</th>
-                                <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Salón</th>
-                                <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Tipo</th>
-                                <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Evidencia</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {logs.map(log => (
-                                <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="py-4 px-6">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-slate-900">{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                            <span className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</span>
-                                        </div>
-                                    </td>
-                                    <td className="py-4 px-6">
-                                        <div className="font-medium text-slate-900">{log.userName}</div>
-                                        <div className="text-xs text-slate-500">{log.legajo}</div>
-                                    </td>
-                                    <td className="py-4 px-6">
-                                        <div className="text-sm text-slate-600">{log.locationName}</div>
-                                        {log.locationStatus !== 'VALID' && (
-                                            <span className="text-xs text-red-500 font-bold">Ubicación Inválida</span>
-                                        )}
-                                    </td>
-                                    <td className="py-4 px-6">
-                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                            log.type === 'CHECK_IN' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
-                                        }`}>
-                                            {log.type === 'CHECK_IN' ? 'Entrada' : 'Salida'}
-                                        </span>
-                                        {log.scheduleStatus === 'OFF_SCHEDULE' && (
-                                            <div className="mt-1 text-xs text-orange-600 font-bold flex items-center gap-1">
-                                                <AlertTriangle size={10} /> Fuera de Horario
-                                            </div>
-                                        )}
-                                    </td>
-                                    <td className="py-4 px-6 text-right">
-                                        <button 
-                                            onClick={() => setSelectedLog(log)}
-                                            className="text-slate-600 hover:text-orange-600 transition flex items-center gap-1 ml-auto text-sm font-medium"
-                                        >
-                                            <ImageIcon size={16} /> Ver Foto
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                            {logs.length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="py-8 text-center text-slate-400 text-sm">
-                                        No hay fichadas registradas.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                <div className="flex flex-col divide-y divide-slate-100">
+                    {/* Header Row (Hidden in mobile maybe, but useful for structure) */}
+                    
+                    {logs.map(log => (
+                        <div 
+                            key={log.id} 
+                            onClick={() => setSelectedLog(log)}
+                            className="flex items-center p-4 hover:bg-slate-50 transition-colors cursor-pointer gap-4"
+                        >
+                            {/* 1. Photo */}
+                            <div className="flex-shrink-0">
+                                <img 
+                                    src={log.photoEvidence} 
+                                    className="w-12 h-12 rounded bg-slate-200 object-cover" 
+                                    alt="Evidence" 
+                                />
+                            </div>
+
+                            {/* 2. Legajo */}
+                            <div className="w-20 text-sm font-medium text-orange-700 hidden sm:block">
+                                {log.legajo || log.userId.substring(0,6)}
+                            </div>
+
+                            {/* 3. Name */}
+                            <div className="flex-1 min-w-[150px]">
+                                <div className="font-bold text-slate-800 text-sm">{log.userName}</div>
+                            </div>
+
+                            {/* 4. Hash (Visual filler) */}
+                            <div className="w-32 text-xs text-slate-400 font-mono hidden md:block truncate">
+                                {getShortHash(log.id)}
+                            </div>
+
+                            {/* 5. Pin Icon */}
+                            <div className="text-orange-600 hidden sm:block">
+                                <MapPin size={18} />
+                            </div>
+
+                            {/* 6. Status */}
+                            <div className="w-32 hidden lg:block text-right">
+                                <span className="text-xs font-bold text-orange-700">ONLINE-AUTOMATIC</span>
+                            </div>
+
+                            {/* 7. Date & Time */}
+                            <div className="w-32 text-right">
+                                <div className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</div>
+                                <div className="text-sm font-bold text-slate-800">{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                            </div>
+                            
+                            {/* 8. Location Name */}
+                            <div className="w-40 text-right text-xs text-slate-600 font-medium hidden md:block truncate pl-2">
+                                {log.locationName}
+                            </div>
+                        </div>
+                    ))}
+                    
+                    {logs.length === 0 && (
+                        <div className="p-8 text-center text-slate-400 text-sm">
+                            No hay fichadas registradas.
+                        </div>
+                    )}
                 </div>
             </div>
 
             {selectedLog && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col md:flex-row">
-                        <div className="w-full md:w-1/2 bg-black flex items-center justify-center relative">
-                            <img src={selectedLog.photoEvidence} className="max-h-[400px] object-contain" alt="Evidencia" />
-                            <div className="absolute bottom-4 left-4 right-4 bg-black/60 text-white p-2 rounded text-xs">
-                                {new Date(selectedLog.timestamp).toLocaleString()}
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col">
+                        <div className="p-4 border-b flex justify-between items-center">
+                            <h3 className="text-xl font-bold text-slate-800">Reporte detalle</h3>
+                            <button onClick={() => setSelectedLog(null)} className="text-slate-400 hover:text-slate-600">
+                                <X size={24} />
+                            </button>
+                        </div>
+                        
+                        <div className="flex flex-col md:flex-row p-6 gap-8">
+                            {/* Left: Photo */}
+                            <div className="w-full md:w-5/12">
+                                <div className="aspect-[3/4] bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                                    <img 
+                                        src={selectedLog.photoEvidence} 
+                                        className="w-full h-full object-cover" 
+                                        alt="Evidencia Grande" 
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Right: Details */}
+                            <div className="w-full md:w-7/12 flex flex-col gap-4">
+                                <div className="grid grid-cols-[120px_1fr] gap-y-3 text-sm">
+                                    <div className="text-slate-500">Documento:</div>
+                                    <div className="font-medium text-slate-800">{selectedLog.legajo}</div>
+
+                                    <div className="text-slate-500">Nombre:</div>
+                                    <div className="font-medium text-slate-800">{selectedLog.userName}</div>
+
+                                    <div className="text-slate-500">Dispositivo:</div>
+                                    <div className="font-medium text-slate-800 font-mono text-xs">{selectedLog.id.substring(0, 16)}</div>
+
+                                    <div className="text-slate-500">Tipo de marca:</div>
+                                    <div className="font-bold uppercase text-slate-800">
+                                        {selectedLog.type === 'CHECK_IN' ? 'ENTRADA' : 'SALIDA'}
+                                    </div>
+
+                                    <div className="text-slate-500">Certeza:</div>
+                                    <div className={`font-bold ${selectedLog.identityStatus === 'MATCH' ? 'text-green-600' : 'text-red-600'}`}>
+                                        {selectedLog.identityStatus === 'MATCH' ? 'Identificado' : 'No identificado'}
+                                    </div>
+
+                                    <div className="text-slate-500">Fecha:</div>
+                                    <div className="font-medium text-slate-800">{new Date(selectedLog.timestamp).toLocaleDateString()}</div>
+
+                                    <div className="text-slate-500">Hora:</div>
+                                    <div className="font-medium text-slate-800">{new Date(selectedLog.timestamp).toLocaleTimeString()}</div>
+
+                                    <div className="text-slate-500">Ubicación:</div>
+                                    <div className="font-medium text-slate-800">{selectedLog.locationName}</div>
+                                </div>
+
+                                {/* Fake Map Visual */}
+                                <div className="mt-4 flex-1 min-h-[150px] bg-slate-100 rounded-lg overflow-hidden border border-slate-200 relative">
+                                    {/* Static Map Image Placeholder or generic map visual */}
+                                    <div className="w-full h-full bg-slate-200 flex items-center justify-center relative overflow-hidden">
+                                         <div className="absolute inset-0 opacity-50 bg-[url('https://upload.wikimedia.org/wikipedia/commons/e/ec/World_map_blank_without_borders.svg')] bg-cover bg-center"></div>
+                                         <div className="z-10 flex flex-col items-center">
+                                             <MapPin size={32} className="text-red-600 drop-shadow-lg" fill="currentColor" />
+                                             <span className="text-xs font-bold text-slate-700 bg-white/80 px-2 py-1 rounded mt-1">
+                                                 {selectedLog.locationName}
+                                             </span>
+                                         </div>
+                                    </div>
+                                    <a href="#" className="absolute bottom-2 left-2 flex items-center gap-1 text-orange-700 text-xs font-bold bg-white/90 px-2 py-1 rounded shadow-sm hover:bg-white">
+                                        <MapPin size={12} /> Ver mapa
+                                    </a>
+                                </div>
                             </div>
                         </div>
-                        <div className="w-full md:w-1/2 p-6 flex flex-col">
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <h3 className="text-lg font-bold text-slate-900">{selectedLog.userName}</h3>
-                                    <p className="text-slate-500 text-sm">{selectedLog.type === 'CHECK_IN' ? 'Entrada' : 'Salida'} en {selectedLog.locationName}</p>
-                                </div>
-                                <button onClick={() => setSelectedLog(null)} className="text-slate-400 hover:text-slate-600">
-                                    <X size={24} />
-                                </button>
-                            </div>
 
-                            <div className="space-y-4 flex-1 overflow-y-auto">
-                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Análisis de IA</h4>
-                                    <p className="text-sm text-slate-700 italic">"{selectedLog.aiFeedback}"</p>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className={`p-3 rounded-lg border ${selectedLog.identityStatus === 'MATCH' ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
-                                        <div className="text-xs font-bold uppercase mb-1 flex items-center gap-1">
-                                            {selectedLog.identityStatus === 'MATCH' ? <CheckCircle size={12}/> : <XCircle size={12}/>} Identidad
-                                        </div>
-                                        <span className={`text-sm font-bold ${selectedLog.identityStatus === 'MATCH' ? 'text-green-700' : 'text-red-700'}`}>
-                                            {selectedLog.identityStatus === 'MATCH' ? 'Verificado' : 'No Coincide'}
-                                        </span>
-                                    </div>
-                                    <div className={`p-3 rounded-lg border ${selectedLog.dressCodeStatus === 'PASS' ? 'bg-green-50 border-green-100' : 'bg-orange-50 border-orange-100'}`}>
-                                        <div className="text-xs font-bold uppercase mb-1 flex items-center gap-1">
-                                            {selectedLog.dressCodeStatus === 'PASS' ? <CheckCircle size={12}/> : <AlertTriangle size={12}/>} Vestimenta
-                                        </div>
-                                        <span className={`text-sm font-bold ${selectedLog.dressCodeStatus === 'PASS' ? 'text-orange-700' : 'text-orange-700'}`}>
-                                            {selectedLog.dressCodeStatus === 'PASS' ? 'Correcta' : 'Revisar'}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div className="mt-6 pt-4 border-t border-slate-100">
-                                <button onClick={() => setSelectedLog(null)} className="w-full bg-slate-900 text-white py-2 rounded-lg font-bold">Cerrar</button>
-                            </div>
+                        <div className="p-4 border-t bg-slate-50 flex justify-end">
+                             <button 
+                                onClick={() => setSelectedLog(null)}
+                                className="px-6 py-2 bg-white border border-slate-300 rounded text-slate-700 hover:bg-slate-100 font-medium transition"
+                             >
+                                 Cerrar
+                             </button>
                         </div>
                     </div>
                 </div>
