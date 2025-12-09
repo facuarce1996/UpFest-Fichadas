@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, Schema, Part } from "@google/genai";
 import { ValidationResult } from "../types";
 
 const cleanBase64 = (dataUrl: string) => {
@@ -49,7 +49,7 @@ export const analyzeCheckIn = async (
 
     const ai = new GoogleGenAI({ apiKey });
 
-    const parts: any[] = [];
+    const parts: Part[] = [];
     
     // Prompt construction in Spanish
     let prompt = `

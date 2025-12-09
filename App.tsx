@@ -4,18 +4,144 @@ import {
 } from './types';
 import { 
   getCurrentPosition, calculateDistance, isWithinSchedule, getScheduleDelayInfo,
-  fetchUsers, fetchLocations, fetchLogs, addLog, saveUser, deleteUser,
+  fetchUsers, fetchLocations, fetchLogs, fetchTodayLogs, fetchLogsByDateRange, addLog, saveUser, deleteUser,
   authenticateUser, saveLocation, deleteLocation, fetchCompanyLogo, saveCompanyLogo
 } from './services/utils';
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu, Settings, ChevronRight
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu, Settings, ChevronRight, LayoutDashboard, ArrowLeft, Calendar, Download, Search, Filter, FileSpreadsheet, File
 } from 'lucide-react';
+import { jsPDF } from "jspdf";
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 // --- Sub-Components ---
 
-const Header = ({ 
+const Sidebar = ({ 
+  activeTab, 
+  setActiveTab, 
+  currentUser, 
+  onLogout,
+  logoUrl
+}: { 
+  activeTab: string, 
+  setActiveTab: (t: string) => void,
+  currentUser: User,
+  onLogout: () => void,
+  logoUrl: string | null
+}) => {
+  return (
+    <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 h-screen sticky top-0">
+      {/* Logo Area */}
+      <div className="p-6 border-b border-slate-100 flex flex-col items-center">
+        {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="h-16 w-auto object-contain mb-2" />
+        ) : (
+            <div className="w-12 h-12 bg-slate-900 text-white rounded-full flex items-center justify-center font-bold text-xl mb-2">UP</div>
+        )}
+        <span className="font-bold text-lg text-slate-800">UpFest Control</span>
+      </div>
+
+      {/* User Info */}
+      <div className="p-4 bg-slate-50 border-b border-slate-100">
+        <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
+                 {currentUser.referenceImage ? (
+                    <img src={currentUser.referenceImage} className="w-full h-full object-cover" alt="Avatar"/>
+                 ) : (
+                    <div className="w-full h-full flex items-center justify-center text-slate-400"><UserIcon size={20}/></div>
+                 )}
+            </div>
+            <div className="overflow-hidden">
+                <p className="font-bold text-slate-800 text-sm truncate">{currentUser.name}</p>
+                <p className="text-xs text-slate-500 truncate">{currentUser.role}</p>
+            </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        <button
+            onClick={() => setActiveTab('clock')}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'clock' || activeTab === 'self-clock'
+                ? 'bg-orange-50 text-orange-700' 
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+        >
+            <Clock size={20}/>
+            Fichadas
+        </button>
+
+        {currentUser.role === Role.ADMIN && (
+            <>
+                <button
+                    onClick={() => setActiveTab('monitor')}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        activeTab === 'monitor' 
+                        ? 'bg-orange-50 text-orange-700' 
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                >
+                    <LayoutDashboard size={20}/>
+                    Monitor Sucursales
+                </button>
+
+                <button
+                    onClick={() => setActiveTab('admin')}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        activeTab === 'admin' 
+                        ? 'bg-orange-50 text-orange-700' 
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                >
+                    <Users size={20}/>
+                    Usuarios
+                </button>
+
+                <button
+                    onClick={() => setActiveTab('locations')}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        activeTab === 'locations' 
+                        ? 'bg-orange-50 text-orange-700' 
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                >
+                    <Building size={20}/>
+                    Salones
+                </button>
+
+                <button
+                    onClick={() => setActiveTab('config')}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        activeTab === 'config' 
+                        ? 'bg-orange-50 text-orange-700' 
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                >
+                    <Settings size={20}/>
+                    Configuración
+                </button>
+            </>
+        )}
+      </nav>
+
+      {/* Logout */}
+      <div className="p-4 border-t border-slate-100">
+        <button 
+            onClick={onLogout} 
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+        >
+            <LogOut size={20} />
+            Cerrar Sesión
+        </button>
+      </div>
+    </aside>
+  );
+};
+
+const MobileHeader = ({ 
   activeTab, 
   setActiveTab, 
   currentUser, 
@@ -31,107 +157,42 @@ const Header = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <header className="bg-white shadow-sm sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center gap-4 sm:gap-8">
-              <div className="flex-shrink-0 flex items-center gap-2">
-                  {logoUrl ? (
-                      <img src={logoUrl} alt="Logo" className="h-10 w-auto object-contain" />
-                  ) : (
-                      <div className="w-8 h-8 bg-slate-900 text-white rounded-full flex items-center justify-center font-bold">UP</div>
-                  )}
-                  <span className="font-bold text-xl text-slate-800 hidden sm:block">UpFest</span>
-              </div>
-            
-              {currentUser && (
-                  <nav className="hidden sm:flex space-x-2">
-                      {/* Desktop Navigation */}
-                      <button
-                          onClick={() => setActiveTab('clock')}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                              activeTab === 'clock' || activeTab === 'self-clock'
-                              ? 'bg-orange-50 text-orange-700' 
-                              : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                          }`}
-                      >
-                          <span className="flex items-center gap-2"><Clock size={16}/> Fichadas</span>
-                      </button>
-
-                      {currentUser.role === Role.ADMIN && (
-                          <>
-                              <button
-                                  onClick={() => setActiveTab('admin')}
-                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                      activeTab === 'admin' 
-                                      ? 'bg-orange-600 text-white shadow-md shadow-orange-200' 
-                                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                                  }`}
-                              >
-                                  <span className="flex items-center gap-2"><Users size={16}/> Usuarios</span>
-                              </button>
-
-                              <button
-                                  onClick={() => setActiveTab('locations')}
-                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                      activeTab === 'locations' 
-                                      ? 'bg-orange-600 text-white shadow-md shadow-orange-200' 
-                                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                                  }`}
-                              >
-                                  <span className="flex items-center gap-2"><Building size={16}/> Salones</span>
-                              </button>
-
-                              <button
-                                  onClick={() => setActiveTab('config')}
-                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                      activeTab === 'config' 
-                                      ? 'bg-orange-600 text-white shadow-md shadow-orange-200' 
-                                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
-                                  }`}
-                              >
-                                  <span className="flex items-center gap-2"><Settings size={16}/> Config</span>
-                              </button>
-                          </>
-                      )}
-                  </nav>
+    <header className="bg-white shadow-sm sticky top-0 z-50 md:hidden">
+      <div className="px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+              {logoUrl ? (
+                  <img src={logoUrl} alt="Logo" className="h-8 w-auto object-contain" />
+              ) : (
+                  <div className="w-8 h-8 bg-slate-900 text-white rounded-full flex items-center justify-center font-bold text-sm">UP</div>
               )}
+              <span className="font-bold text-lg text-slate-800">UpFest</span>
           </div>
         
           {currentUser && (
-              <div className="flex items-center gap-4">
-                  <div className="hidden sm:flex flex-col items-end">
-                      <span className="text-sm font-bold text-gray-800">{currentUser.name}</span>
-                      <span className="text-xs text-gray-500">{currentUser.role}</span>
-                  </div>
-                  
-                  <button 
-                    onClick={onLogout} 
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
-                    title="Cerrar Sesión"
-                  >
-                      <LogOut size={20} />
-                      <span className="hidden lg:inline text-sm font-medium">Salir</span>
-                  </button>
-                  
-                  {/* Mobile Menu Button */}
-                  <button 
-                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                    className="sm:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-md focus:outline-none"
-                  >
-                    {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-                  </button>
-              </div>
+              <button 
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-md focus:outline-none"
+              >
+                {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+              </button>
           )}
-        </div>
       </div>
 
       {/* Mobile Menu Dropdown */}
       {currentUser && isMobileMenuOpen && (
-        <div className="sm:hidden bg-white border-t border-gray-100 shadow-lg px-4 pt-2 pb-4 space-y-2 absolute w-full left-0 z-40">
-            <div className="px-3 py-2 border-b border-gray-100 mb-2">
-                <span className="block text-sm font-bold text-gray-800">{currentUser.name}</span>
-                <span className="block text-xs text-gray-500">{currentUser.role}</span>
+        <div className="bg-white border-t border-gray-100 shadow-lg px-4 pt-2 pb-4 space-y-2 absolute w-full left-0 z-40">
+            <div className="px-3 py-2 border-b border-gray-100 mb-2 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden">
+                     {currentUser.referenceImage ? (
+                        <img src={currentUser.referenceImage} className="w-full h-full object-cover" alt="Avatar"/>
+                     ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400"><UserIcon size={16}/></div>
+                     )}
+                </div>
+                <div>
+                    <span className="block text-sm font-bold text-gray-800">{currentUser.name}</span>
+                    <span className="block text-xs text-gray-500">{currentUser.role}</span>
+                </div>
             </div>
 
             <button
@@ -147,6 +208,17 @@ const Header = ({
 
             {currentUser.role === Role.ADMIN && (
                 <>
+                    <button
+                        onClick={() => { setActiveTab('monitor'); setIsMobileMenuOpen(false); }}
+                        className={`w-full text-left px-3 py-3 rounded-lg text-base font-medium flex items-center gap-3 transition-colors ${
+                            activeTab === 'monitor' 
+                            ? 'bg-orange-50 text-orange-700' 
+                            : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                    >
+                        <LayoutDashboard size={20}/> Monitor Sucursales
+                    </button>
+
                     <button
                         onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
                         className={`w-full text-left px-3 py-3 rounded-lg text-base font-medium flex items-center gap-3 transition-colors ${
@@ -222,7 +294,7 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-50">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8 space-y-8 border border-slate-100">
         <div className="text-center">
           {logoUrl ? (
@@ -672,6 +744,213 @@ const LocationForm: React.FC<LocationFormProps> = ({ initialData, onSubmit, subm
   )
 }
 
+// --- Monitor Dashboard ---
+
+interface MonitorStat {
+    location: Location;
+    assignedUsers: User[];
+    presentCount: number;
+    expectedCount: number;
+    usersStatus: {
+        user: User;
+        status: 'PRESENT' | 'ABSENT' | 'NO_SHIFT';
+        lastLog?: LogEntry;
+        shift?: string;
+    }[];
+}
+
+const MonitorDashboard = () => {
+    const [stats, setStats] = useState<MonitorStat[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedLocation, setSelectedLocation] = useState<MonitorStat | null>(null);
+
+    useEffect(() => {
+        const loadData = async () => {
+            const [users, locations, todayLogs] = await Promise.all([
+                fetchUsers(),
+                fetchLocations(),
+                fetchTodayLogs()
+            ]);
+
+            const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            const todayName = days[new Date().getDay()];
+
+            const newStats: MonitorStat[] = locations.map(loc => {
+                // Users assigned to this location
+                const locUsers = users.filter(u => u.assignedLocations?.includes(loc.id));
+                
+                // Calculate status for each user
+                const usersStatus = locUsers.map(u => {
+                    const todaySchedule = u.schedule?.find(s => s.day === todayName);
+                    const lastLog = todayLogs.find(l => l.userId === u.id); // Assuming logs sorted desc
+                    
+                    let status: 'PRESENT' | 'ABSENT' | 'NO_SHIFT' = 'NO_SHIFT';
+                    
+                    if (todaySchedule) {
+                        if (lastLog && lastLog.type === 'CHECK_IN') {
+                            status = 'PRESENT';
+                        } else {
+                            status = 'ABSENT';
+                        }
+                    }
+
+                    return {
+                        user: u,
+                        status,
+                        lastLog,
+                        shift: todaySchedule ? `${todaySchedule.start} - ${todaySchedule.end}` : undefined
+                    };
+                });
+
+                const presentCount = usersStatus.filter(s => s.status === 'PRESENT').length;
+                // Expected count includes anyone with a shift today, regardless of current time (simplified)
+                const expectedCount = usersStatus.filter(s => s.status !== 'NO_SHIFT').length;
+
+                return {
+                    location: loc,
+                    assignedUsers: locUsers,
+                    presentCount,
+                    expectedCount,
+                    usersStatus
+                };
+            });
+
+            setStats(newStats);
+            setLoading(false);
+        };
+
+        loadData();
+        const interval = setInterval(loadData, 10000); // Refresh every 10s
+        return () => clearInterval(interval);
+    }, []);
+
+    if (selectedLocation) {
+        return (
+            <div className="max-w-7xl mx-auto p-6">
+                <button 
+                    onClick={() => setSelectedLocation(null)}
+                    className="flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-6 transition"
+                >
+                    <ArrowLeft size={20} /> Volver al Monitor
+                </button>
+
+                <div className="flex items-center gap-4 mb-6">
+                    <h2 className="text-2xl font-bold text-slate-800">{selectedLocation.location.name} <span className="text-lg font-normal text-slate-500">| Monitor de sucursales</span></h2>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-white border-b border-slate-100">
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Nº Legajo</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Apellido</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Nombre</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Puesto de trabajo</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Sucursal habitual</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Horario</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Estado</th>
+                                    <th className="py-4 px-6 text-xs font-bold text-slate-400 uppercase tracking-wider">Fichó en</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {selectedLocation.usersStatus.map((item, idx) => (
+                                    <tr key={item.user.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="py-4 px-6 text-sm text-slate-700">{item.user.legajo || '-'}</td>
+                                        <td className="py-4 px-6 text-sm font-medium text-slate-800">{item.user.name.split(' ').slice(1).join(' ')}</td>
+                                        <td className="py-4 px-6 text-sm text-slate-700">{item.user.name.split(' ')[0]}</td>
+                                        <td className="py-4 px-6 text-sm text-slate-600">{item.user.role}</td>
+                                        <td className="py-4 px-6 text-sm text-slate-600">{selectedLocation.location.name}</td>
+                                        <td className="py-4 px-6 text-sm text-slate-600">
+                                            {item.shift ? `${new Date().toLocaleDateString()} ${item.shift}` : '-'}
+                                        </td>
+                                        <td className="py-4 px-6">
+                                            <span className={`text-sm font-bold ${
+                                                item.status === 'PRESENT' ? 'text-green-600' :
+                                                item.status === 'ABSENT' ? 'text-red-500' : 'text-slate-400'
+                                            }`}>
+                                                {item.status === 'PRESENT' ? 'Presente' : 
+                                                 item.status === 'ABSENT' ? 'Ausente' : 'Sin Turno'}
+                                            </span>
+                                        </td>
+                                        <td className="py-4 px-6 text-sm text-slate-600">
+                                            {item.lastLog && item.lastLog.type === 'CHECK_IN' 
+                                                ? new Date(item.lastLog.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) 
+                                                : ''}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {selectedLocation.usersStatus.length === 0 && (
+                                    <tr>
+                                        <td colSpan={8} className="py-8 text-center text-slate-400 text-sm">
+                                            No hay usuarios asignados a esta sucursal.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="max-w-7xl mx-auto p-6">
+            <h1 className="text-2xl font-bold text-slate-800 mb-6">Monitor de Sucursales</h1>
+            
+            {loading ? (
+                <div className="text-center py-10">
+                    <div className="animate-spin w-10 h-10 border-4 border-orange-600 border-t-transparent rounded-full mx-auto"></div>
+                    <p className="mt-4 text-slate-500">Cargando estado...</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {stats.map(stat => (
+                        <div 
+                            key={stat.location.id} 
+                            onClick={() => setSelectedLocation(stat)}
+                            className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 cursor-pointer hover:shadow-md transition group border-l-4 border-l-green-500"
+                        >
+                            <div className="flex items-start justify-between mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-green-50 text-green-700 rounded-lg">
+                                        <Home size={24} />
+                                    </div>
+                                    <h3 className="font-bold text-lg text-slate-800 group-hover:text-orange-600 transition">
+                                        {stat.location.name}
+                                    </h3>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-1">
+                                <p className="text-sm font-medium text-slate-600">
+                                    {stat.presentCount > 0 ? 'Abierta' : 'Sin actividad reciente'}
+                                </p>
+                                <p className="text-sm text-slate-500">
+                                    Presentes: <span className="font-bold text-slate-800">{stat.presentCount}</span> de {stat.expectedCount}
+                                </p>
+                            </div>
+
+                            <div className="mt-4 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                <div 
+                                    className="h-full bg-green-500 rounded-full transition-all duration-500"
+                                    style={{ width: `${stat.expectedCount > 0 ? (stat.presentCount / stat.expectedCount) * 100 : 0}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    ))}
+                    {stats.length === 0 && (
+                        <div className="col-span-full text-center py-10 text-slate-400">
+                            No hay sucursales configuradas.
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- Config Dashboard ---
 
 const ConfigDashboard = ({ onLogoUpdate }: { onLogoUpdate: () => void }) => {
@@ -789,7 +1068,7 @@ const ConfigDashboard = ({ onLogoUpdate }: { onLogoUpdate: () => void }) => {
 
 const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => void }) => {
   const [locations, setLocations] = useState<Location[]>([]);
-  const [step, setStep] = useState<'DASHBOARD' | 'OFF_SCHEDULE_WARNING' | 'VALIDATING_LOC' | 'CAMERA' | 'PROCESSING' | 'RESULT'>('DASHBOARD');
+  const [step, setStep] = useState<'DASHBOARD' | 'OFF_SCHEDULE_WARNING' | 'VALIDATING_LOC' | 'CAMERA' | 'PROCESSING' | 'RESULT' | 'SUCCESS'>('DASHBOARD');
   const [statusMsg, setStatusMsg] = useState('');
   const [result, setResult] = useState<LogEntry | null>(null);
   const [isClockedIn, setIsClockedIn] = useState(false);
@@ -862,10 +1141,19 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
     } catch (err) { setStep('DASHBOARD'); }
   };
   
+  const triggerSuccessSequence = async (entry: LogEntry) => {
+      await addLog(entry);
+      setStep('SUCCESS');
+      
+      // Auto-logout after 3 seconds
+      setTimeout(() => {
+          onFinished();
+      }, 3000);
+  }
+  
   const handleFinalSave = async () => {
       if (result) {
-          await addLog(result);
-          onFinished();
+          triggerSuccessSequence(result);
       }
   };
   
@@ -876,8 +1164,7 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
   const handleSaveWithIncident = async () => {
       if (result) {
           // Force save even with issues
-          await addLog(result);
-          onFinished();
+          triggerSuccessSequence(result);
       }
   };
 
@@ -1007,6 +1294,21 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
               </div>
           </div>
       )}
+
+      {step === 'SUCCESS' && result && (
+        <div className="bg-white rounded-2xl shadow-lg p-12 text-center animate-in fade-in zoom-in duration-300">
+            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle size={48} />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">¡Perfecto!</h2>
+            <p className="text-slate-600 text-lg leading-relaxed">
+                Se guardó tu fichada de <span className="font-bold text-slate-900">{result.type === 'CHECK_IN' ? 'Ingreso' : 'Egreso'}</span> para el <span className="font-bold text-slate-900">{new Date(result.timestamp).toLocaleDateString()}</span> a las <span className="font-bold text-slate-900">{new Date(result.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            </p>
+            <div className="mt-8">
+                <p className="text-sm text-slate-400 italic">Cerrando sesión en 3 segundos...</p>
+            </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1016,12 +1318,117 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
 const LogsDashboard = () => {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+    const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [loading, setLoading] = useState(false);
+    const [showExportMenu, setShowExportMenu] = useState(false);
+
+    const loadLogs = async () => {
+        setLoading(true);
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        const fetchedLogs = await fetchLogsByDateRange(start, end);
+        setLogs(fetchedLogs);
+        setLoading(false);
+    }
 
     useEffect(() => {
-        fetchLogs().then(setLogs);
-        const interval = setInterval(() => fetchLogs().then(setLogs), 3000);
-        return () => clearInterval(interval);
-    }, []);
+        loadLogs();
+        // Removed auto-refresh here to avoid overriding user filters with default recent logs
+    }, []); // Only on mount
+
+    const handleSearch = () => {
+        loadLogs();
+    }
+
+    // --- Export Functions ---
+
+    const handleExportCSV = () => {
+        const headers = ["Legajo", "Nombre", "Tipo", "Fecha", "Hora", "Salón", "Estado Ubicación", "Estado Biometría", "Foto URL"];
+        const rows = logs.map(log => [
+            log.legajo,
+            log.userName,
+            log.type === 'CHECK_IN' ? 'ENTRADA' : 'SALIDA',
+            new Date(log.timestamp).toLocaleDateString(),
+            new Date(log.timestamp).toLocaleTimeString(),
+            log.locationName,
+            log.locationStatus,
+            log.identityStatus,
+            log.photoEvidence
+        ]);
+
+        const csvContent = [
+            headers.join(','), 
+            ...rows.map(row => row.map(cell => `"${cell}"`).join(',')) // Wrap cells in quotes
+        ].join('\n');
+
+        const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `fichadas_${startDate}_al_${endDate}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setShowExportMenu(false);
+    };
+
+    const handleExportExcel = () => {
+        const workSheetData = logs.map(log => ({
+            "Legajo": log.legajo,
+            "Nombre": log.userName,
+            "Tipo": log.type === 'CHECK_IN' ? 'ENTRADA' : 'SALIDA',
+            "Fecha": new Date(log.timestamp).toLocaleDateString(),
+            "Hora": new Date(log.timestamp).toLocaleTimeString(),
+            "Salón": log.locationName,
+            "Estado Ubicación": log.locationStatus,
+            "Estado Biometría": log.identityStatus,
+            "Link Foto": log.photoEvidence
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(workSheetData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Fichadas");
+        XLSX.writeFile(wb, `Reporte_Fichadas_${startDate}_al_${endDate}.xlsx`);
+        setShowExportMenu(false);
+    };
+
+    const handleExportPDF = () => {
+        const doc = new jsPDF();
+        
+        // Header
+        doc.setFontSize(18);
+        doc.text("Reporte de Asistencia", 14, 20);
+        
+        doc.setFontSize(11);
+        doc.setTextColor(100);
+        doc.text(`Desde: ${new Date(startDate).toLocaleDateString()}  Hasta: ${new Date(endDate).toLocaleDateString()}`, 14, 28);
+        
+        // Table Data
+        const tableBody = logs.map(log => [
+            log.legajo,
+            log.userName,
+            log.type === 'CHECK_IN' ? 'ENTRADA' : 'SALIDA',
+            new Date(log.timestamp).toLocaleDateString() + ' ' + new Date(log.timestamp).toLocaleTimeString(),
+            log.locationName,
+            log.locationStatus === 'VALID' ? 'OK' : 'INVALID'
+        ]);
+
+        autoTable(doc, {
+            head: [['Legajo', 'Nombre', 'Tipo', 'Fecha/Hora', 'Salón', 'Ubicación']],
+            body: tableBody,
+            startY: 35,
+            theme: 'striped',
+            headStyles: { fillColor: [234, 88, 12] }, // Orange color matching brand
+        });
+
+        doc.save(`Reporte_Fichadas_${startDate}_al_${endDate}.pdf`);
+        setShowExportMenu(false);
+    };
 
     // Helper to generate fake hash for visual fidelity
     const getShortHash = (id: string) => id.substring(0, 16);
@@ -1030,11 +1437,84 @@ const LogsDashboard = () => {
         <div className="max-w-7xl mx-auto p-6">
             <h1 className="text-2xl font-bold text-slate-800 mb-6">Historial de Fichadas</h1>
             
+            {/* Filters Bar */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-col md:flex-row items-end gap-4">
+                <div className="flex flex-col gap-1 w-full md:w-auto">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Desde</label>
+                    <div className="relative">
+                        <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input 
+                            type="date" 
+                            value={startDate} 
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white outline-none focus:ring-2 focus:ring-orange-500 w-full"
+                        />
+                    </div>
+                </div>
+                <div className="flex flex-col gap-1 w-full md:w-auto">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Hasta</label>
+                    <div className="relative">
+                        <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input 
+                            type="date" 
+                            value={endDate} 
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white outline-none focus:ring-2 focus:ring-orange-500 w-full"
+                        />
+                    </div>
+                </div>
+                
+                <button 
+                    onClick={handleSearch}
+                    className="w-full md:w-auto px-4 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition flex items-center justify-center gap-2"
+                >
+                    <Search size={18} /> Filtrar
+                </button>
+
+                <div className="flex-1 md:text-right w-full md:w-auto relative">
+                    <button 
+                        onClick={() => setShowExportMenu(!showExportMenu)}
+                        className="w-full md:w-auto px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition flex items-center justify-center gap-2 ml-auto"
+                        disabled={logs.length === 0}
+                    >
+                        <Download size={18} /> Exportar
+                    </button>
+
+                    {showExportMenu && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-100 z-50 overflow-hidden">
+                            <button 
+                                onClick={handleExportCSV}
+                                className="w-full text-left px-4 py-3 hover:bg-slate-50 text-slate-700 text-sm flex items-center gap-2 border-b border-slate-50"
+                            >
+                                <FileText size={16} /> CSV (Texto plano)
+                            </button>
+                            <button 
+                                onClick={handleExportExcel}
+                                className="w-full text-left px-4 py-3 hover:bg-slate-50 text-slate-700 text-sm flex items-center gap-2 border-b border-slate-50"
+                            >
+                                <FileSpreadsheet size={16} /> Excel (.xlsx)
+                            </button>
+                            <button 
+                                onClick={handleExportPDF}
+                                className="w-full text-left px-4 py-3 hover:bg-slate-50 text-slate-700 text-sm flex items-center gap-2"
+                            >
+                                <File size={16} /> PDF (Documento)
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="flex flex-col divide-y divide-slate-100">
-                    {/* Header Row (Hidden in mobile maybe, but useful for structure) */}
-                    
-                    {logs.map(log => (
+                    {loading && (
+                        <div className="p-8 text-center text-slate-500">
+                             <div className="animate-spin w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full mx-auto mb-2"></div>
+                             Cargando registros...
+                        </div>
+                    )}
+
+                    {!loading && logs.map(log => (
                         <div 
                             key={log.id} 
                             onClick={() => setSelectedLog(log)}
@@ -1087,9 +1567,9 @@ const LogsDashboard = () => {
                         </div>
                     ))}
                     
-                    {logs.length === 0 && (
+                    {!loading && logs.length === 0 && (
                         <div className="p-8 text-center text-slate-400 text-sm">
-                            No hay fichadas registradas.
+                            No se encontraron fichadas en el rango seleccionado.
                         </div>
                     )}
                 </div>
@@ -1466,13 +1946,6 @@ export default function App() {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col">
-        <Header 
-            activeTab={activeTab} 
-            setActiveTab={setActiveTab} 
-            currentUser={null} 
-            onLogout={() => {}} 
-            logoUrl={logoUrl}
-        />
         <LoginView 
             onLogin={(user) => { setCurrentUser(user); setActiveTab(user.role === Role.ADMIN ? 'admin' : 'clock'); }} 
             logoUrl={logoUrl}
@@ -1482,51 +1955,67 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <Header 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        currentUser={currentUser}
-        onLogout={() => setCurrentUser(null)}
-        logoUrl={logoUrl}
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Sidebar for Desktop */}
+      <Sidebar 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          currentUser={currentUser} 
+          onLogout={() => setCurrentUser(null)} 
+          logoUrl={logoUrl}
       />
-      
-      <main className="flex-1">
-        {activeTab === 'clock' && currentUser.role !== Role.ADMIN && (
-          <ClockInModule user={currentUser} onFinished={() => setCurrentUser(null)} />
-        )}
-        {activeTab === 'clock' && currentUser.role === Role.ADMIN && (
-             <div className="flex flex-col gap-6">
-                 {/* Admin can see the dashboard BUT also has a button to check in themselves */}
-                 <div className="max-w-7xl mx-auto w-full px-6 pt-6">
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex justify-between items-center">
-                        <div>
-                             <h3 className="text-orange-900 font-bold">Modo Administrador</h3>
-                             <p className="text-orange-700 text-sm">Estás viendo el registro global. ¿Necesitas fichar tu propia entrada?</p>
-                        </div>
-                        <button onClick={() => setActiveTab('self-clock')} className="bg-orange-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-orange-700 transition">
-                            Ir a mi Fichada
-                        </button>
-                    </div>
-                 </div>
-                 <LogsDashboard />
-             </div>
-        )}
-        {activeTab === 'self-clock' && (
-          <ClockInModule user={currentUser} onFinished={() => setCurrentUser(null)} />
-        )}
 
-        {activeTab === 'admin' && currentUser.role === Role.ADMIN && (
-          <AdminDashboard currentUserId={currentUser.id} onUserUpdate={setCurrentUser} />
-        )}
-        {activeTab === 'locations' && currentUser.role === Role.ADMIN && (
-          <LocationsDashboard />
-        )}
-        
-        {activeTab === 'config' && currentUser.role === Role.ADMIN && (
-          <ConfigDashboard onLogoUpdate={() => fetchCompanyLogo().then(setLogoUrl)} />
-        )}
-      </main>
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+          {/* Header for Mobile */}
+          <MobileHeader 
+            activeTab={activeTab} 
+            setActiveTab={setActiveTab} 
+            currentUser={currentUser}
+            onLogout={() => setCurrentUser(null)}
+            logoUrl={logoUrl}
+          />
+          
+          <main className="flex-1 overflow-y-auto bg-slate-50">
+            {activeTab === 'clock' && currentUser.role !== Role.ADMIN && (
+              <ClockInModule user={currentUser} onFinished={() => setCurrentUser(null)} />
+            )}
+            {activeTab === 'clock' && currentUser.role === Role.ADMIN && (
+                <div className="flex flex-col gap-6">
+                    {/* Admin can see the dashboard BUT also has a button to check in themselves */}
+                    <div className="max-w-7xl mx-auto w-full px-6 pt-6">
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-orange-900 font-bold">Modo Administrador</h3>
+                                <p className="text-orange-700 text-sm">Estás viendo el registro global. ¿Necesitas fichar tu propia entrada?</p>
+                            </div>
+                            <button onClick={() => setActiveTab('self-clock')} className="bg-orange-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-orange-700 transition">
+                                Ir a mi Fichada
+                            </button>
+                        </div>
+                    </div>
+                    <LogsDashboard />
+                </div>
+            )}
+            {activeTab === 'self-clock' && (
+              <ClockInModule user={currentUser} onFinished={() => { setActiveTab('admin'); }} />
+            )}
+            
+            {activeTab === 'monitor' && currentUser.role === Role.ADMIN && (
+              <MonitorDashboard />
+            )}
+
+            {activeTab === 'admin' && currentUser.role === Role.ADMIN && (
+              <AdminDashboard currentUserId={currentUser.id} onUserUpdate={setCurrentUser} />
+            )}
+            {activeTab === 'locations' && currentUser.role === Role.ADMIN && (
+              <LocationsDashboard />
+            )}
+            
+            {activeTab === 'config' && currentUser.role === Role.ADMIN && (
+              <ConfigDashboard onLogoUpdate={() => fetchCompanyLogo().then(setLogoUrl)} />
+            )}
+          </main>
+      </div>
     </div>
   );
 }

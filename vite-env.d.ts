@@ -1,4 +1,4 @@
-/// <reference types="vite/client" />
+// reference types="vite/client" removed
 
 interface ImportMetaEnv {
   readonly VITE_API_KEY: string;

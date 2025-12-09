@@ -294,6 +294,46 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
   return data.map(mapLogFromDB);
 };
 
+// Obtener logs por rango de fecha (FILTRO)
+export const fetchLogsByDateRange = async (startDate: Date, endDate: Date): Promise<LogEntry[]> => {
+    const startIso = startDate.toISOString();
+    const endIso = endDate.toISOString();
+
+    const { data, error } = await supabase
+        .from('logs')
+        .select('*')
+        .gte('timestamp', startIso)
+        .lte('timestamp', endIso)
+        .order('timestamp', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching logs by range:', error);
+        return [];
+    }
+    return data.map(mapLogFromDB);
+};
+
+// Nueva función para obtener TODOS los logs del día actual para el Monitor
+export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const { data, error } = await supabase
+        .from('logs')
+        .select('*')
+        .gte('timestamp', startOfDay.toISOString())
+        .lte('timestamp', endOfDay.toISOString())
+        .order('timestamp', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching today logs:', error);
+        return [];
+    }
+    return data.map(mapLogFromDB);
+};
+
 export const addLog = async (entry: LogEntry) => {
   let photoUrl = entry.photoEvidence;
 
