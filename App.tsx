@@ -1068,7 +1068,7 @@ const ConfigDashboard = ({ onLogoUpdate }: { onLogoUpdate: () => void }) => {
 
 const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => void }) => {
   const [locations, setLocations] = useState<Location[]>([]);
-  const [step, setStep] = useState<'DASHBOARD' | 'OFF_SCHEDULE_WARNING' | 'VALIDATING_LOC' | 'CAMERA' | 'PROCESSING' | 'RESULT' | 'SUCCESS'>('DASHBOARD');
+  const [step, setStep] = useState<'DASHBOARD' | 'OFF_SCHEDULE_WARNING' | 'VALIDATING_LOC' | 'CAMERA' | 'PROCESSING' | 'RESULT' | 'SUCCESS' | 'PERMISSION_DENIED'>('DASHBOARD');
   const [statusMsg, setStatusMsg] = useState('');
   const [result, setResult] = useState<LogEntry | null>(null);
   const [isClockedIn, setIsClockedIn] = useState(false);
@@ -1118,9 +1118,13 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
         locationId: (nearestLoc as Location).id, locationName: (nearestLoc as Location).name, locationStatus: isInside ? 'VALID' : 'INVALID',
         scheduleStatus: onSchedule ? 'ON_TIME' : 'OFF_SCHEDULE', dressCodeStatus: 'FAIL', identityStatus: 'NO_MATCH', photoEvidence: '', aiFeedback: ''
       });
-    } catch (err) {
-      alert("Error GPS. Asegúrate de permitir el acceso a la ubicación.");
-      setStep('DASHBOARD');
+    } catch (err: any) {
+      if (err.code === 1 || err.message.includes('permission')) {
+          setStep('PERMISSION_DENIED');
+      } else {
+          alert("Error GPS: " + err.message);
+          setStep('DASHBOARD');
+      }
     }
   };
 
@@ -1180,6 +1184,8 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
 
   if (step === 'CAMERA') return <CameraView onCapture={handleCapture} onCancel={() => setStep('DASHBOARD')} />;
 
+  const delayInfo = getScheduleDelayInfo(user.schedule);
+
   return (
     <div className="max-w-xl mx-auto p-4">
       {step === 'DASHBOARD' && (
@@ -1231,6 +1237,40 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
           </div>
       )}
 
+      {step === 'PERMISSION_DENIED' && (
+          <div className="bg-white rounded-2xl shadow-lg p-8 text-center border-t-4 border-red-500">
+             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                <MapPin size={32} />
+             </div>
+             <h2 className="text-xl font-bold text-slate-900 mb-2">Habilitar Ubicación</h2>
+             <p className="text-slate-600 mb-4 text-sm">
+                Para fichar, necesitamos confirmar que estás en el salón. Tu navegador ha bloqueado el acceso al GPS.
+             </p>
+             <div className="bg-slate-50 p-4 rounded-lg text-left text-xs text-slate-700 mb-6 space-y-2 border border-slate-100">
+                <p className="font-bold">Cómo activarlo en iPhone (Safari):</p>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                    <li>Toca el icono <strong>"aA"</strong> en la barra de dirección (abajo o arriba).</li>
+                    <li>Selecciona <strong>Configuración del sitio web</strong>.</li>
+                    <li>Toca en <strong>Ubicación</strong> y selecciona <strong>Permitir</strong>.</li>
+                </ol>
+             </div>
+             <div className="space-y-3">
+                 <button 
+                    onClick={() => pendingAction && proceedToLocationCheck(pendingAction)}
+                    className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700 transition"
+                 >
+                    Reintentar Validación
+                 </button>
+                 <button 
+                    onClick={reset}
+                    className="w-full bg-white text-slate-600 border border-slate-200 py-3 rounded-lg font-bold hover:bg-slate-50 transition"
+                 >
+                    Cancelar
+                 </button>
+             </div>
+          </div>
+      )}
+
       {(step === 'VALIDATING_LOC' || step === 'PROCESSING') && (
         <div className="bg-white rounded-2xl shadow-lg p-12 text-center">
             <div className="animate-spin w-10 h-10 border-4 border-orange-600 border-t-transparent rounded-full mx-auto mb-4"></div>
@@ -1250,15 +1290,16 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                            <span className="text-slate-500 text-sm">Horario</span>
                            <div className="text-right">
                                <span className="font-mono font-bold text-slate-800 block">{new Date(result.timestamp).toLocaleTimeString()}</span>
-                               {getScheduleDelayInfo(user.schedule) && (
-                                   <span className="text-xs text-orange-600 font-medium block">{getScheduleDelayInfo(user.schedule)}</span>
+                               {delayInfo && (
+                                   <span className="text-xs text-orange-600 font-medium block">{delayInfo}</span>
                                )}
                            </div>
                        </div>
                        <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Estado Horario</span>
-                           <span className={`font-bold text-sm ${result.scheduleStatus === 'ON_TIME' ? 'text-green-600' : 'text-orange-600'}`}>
-                               {result.scheduleStatus === 'ON_TIME' ? 'En Horario' : 'Fuera de Horario'}
+                           {/* Logic override: If there is delay info, display Late warning instead of On Time */}
+                           <span className={`font-bold text-sm ${delayInfo ? 'text-orange-600' : (result.scheduleStatus === 'ON_TIME' ? 'text-green-600' : 'text-red-500')}`}>
+                               {delayInfo ? 'Llegada Tarde' : (result.scheduleStatus === 'ON_TIME' ? 'En Horario' : 'Fuera de Horario')}
                            </span>
                        </div>
                        <div className="flex justify-between border-b pb-2">
@@ -1270,19 +1311,35 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                                <span className="text-xs text-slate-400 block">{result.locationName}</span>
                            </div>
                        </div>
-                       <div className="flex justify-between">
+                       <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Biometría</span>
                            <span className={`font-bold text-sm ${result.identityStatus === 'MATCH' ? 'text-green-600' : 'text-red-500'}`}>{result.identityStatus === 'MATCH' ? 'Aprobada' : 'Revisar'}</span>
                        </div>
+                       <div className="flex justify-between pb-2">
+                           <span className="text-slate-500 text-sm">Vestimenta</span>
+                           <span className={`font-bold text-sm ${result.dressCodeStatus === 'PASS' ? 'text-green-600' : 'text-orange-600'}`}>
+                               {result.dressCodeStatus === 'PASS' ? 'Correcta' : 'Incorrecta'}
+                           </span>
+                       </div>
+                  </div>
+
+                  {/* AI Feedback Section */}
+                  <div className="mt-4 bg-slate-100 p-3 rounded-lg text-left border border-slate-200">
+                      <p className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                          <Eye size={12}/> Detalle de Análisis (IA)
+                      </p>
+                      <p className="text-sm text-slate-700 leading-snug">
+                          {result.aiFeedback || "Sin detalles adicionales."}
+                      </p>
                   </div>
                   
                   {/* Actions based on result */}
                   {result.identityStatus === 'MATCH' ? (
-                      <button onClick={handleFinalSave} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold">
+                      <button onClick={handleFinalSave} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold mt-4">
                           Finalizar
                       </button>
                   ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-3 mt-4">
                           <button onClick={handleRetryPhoto} className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700">
                               Reintentar Foto
                           </button>
