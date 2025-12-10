@@ -5,6 +5,28 @@ const cleanBase64 = (dataUrl: string) => {
   return dataUrl.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 };
 
+// Helper function to fetch an image from a URL and convert it to Base64
+// This is necessary because Gemini API inlineData expects raw bytes, not a URL.
+const getBase64FromUrl = async (url: string): Promise<string> => {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        resolve(cleanBase64(base64String));
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error("Error converting URL to Base64:", error);
+    throw error;
+  }
+};
+
 const validationSchema: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -34,11 +56,11 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
-    // Vite reemplazará esto por el string real durante el build
-    const apiKey = process.env.API_KEY;
+    // Robust API Key detection: Try process.env first (Vercel standard), then VITE_ var (Vite standard)
+    const apiKey = process.env.API_KEY || import.meta.env.VITE_API_KEY;
     
     if (!apiKey) {
-      console.error("API Key is missing. Please check Vercel environment variables.");
+      console.error("API Key is missing. Please check Vercel environment variables (API_KEY or VITE_API_KEY).");
       return {
         identityMatch: false,
         dressCodeMatches: false,
@@ -58,7 +80,7 @@ export const analyzeCheckIn = async (
       RESPONDE SIEMPRE EN ESPAÑOL.
       
       Tarea 1: Validación de Vestimenta
-      El código de vestimenta requerido es: "${dressCodeDescription}".
+      El código de vestimenta requerido es: "${dressCodeDescription || 'Vestimenta formal o uniforme de trabajo'}".
       ¿La persona en la 'Imagen de Fichada' cumple con esto? Explica por qué.
     `;
 
@@ -71,11 +93,19 @@ export const analyzeCheckIn = async (
       Compara los rostros. ¿Son la misma persona? Sé estricto.
       `;
       
+      // Handle Reference Image: It might be a URL (from DB) or Base64 (from upload)
+      let referenceImageBase64 = "";
+      if (referenceImage.startsWith('http')) {
+          referenceImageBase64 = await getBase64FromUrl(referenceImage);
+      } else {
+          referenceImageBase64 = cleanBase64(referenceImage);
+      }
+
       // Add Reference Image Part
       parts.push({
         inlineData: {
           mimeType: "image/jpeg",
-          data: cleanBase64(referenceImage),
+          data: referenceImageBase64,
         },
       });
     } else {
@@ -85,7 +115,7 @@ export const analyzeCheckIn = async (
       `;
     }
 
-    // Add Check-In Image Part
+    // Add Check-In Image Part (Always Base64 from Canvas)
     parts.push({
       inlineData: {
         mimeType: "image/jpeg",
