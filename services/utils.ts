@@ -1,7 +1,8 @@
-import { Location, User, LogEntry, Role, WorkSchedule } from "../types";
+
+import { Location, User, LogEntry, Role, WorkSchedule, Incident } from "../types";
 import { supabase } from "./supabaseClient";
 
-// --- Time & Schedule Helpers (Mantienen lógica local) ---
+// --- Time & Schedule Helpers ---
 
 export const isWithinSchedule = (schedules: WorkSchedule[]): boolean => {
   if (!schedules || schedules.length === 0) return true;
@@ -39,21 +40,16 @@ export const getScheduleDelayInfo = (schedules: WorkSchedule[]): string | null =
     const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     const todayName = days[now.getDay()];
     
-    // Buscar el horario de hoy
     const todaySchedule = schedules.find(s => s.day === todayName);
-    
     if (!todaySchedule) return null;
 
     const currentHours = now.getHours();
     const currentMinutes = now.getMinutes();
-    
     const [startHours, startMinutes] = todaySchedule.start.split(':').map(Number);
     
-    // Convertir todo a minutos para comparar
     const nowTotalMinutes = currentHours * 60 + currentMinutes;
     const startTotalMinutes = startHours * 60 + startMinutes;
     
-    // Si llegó tarde (más de 15 mins de tolerancia por ejemplo, o estricto > 0)
     if (nowTotalMinutes > startTotalMinutes) {
         const diffMinutes = nowTotalMinutes - startTotalMinutes;
         const hoursLate = Math.floor(diffMinutes / 60);
@@ -65,11 +61,10 @@ export const getScheduleDelayInfo = (schedules: WorkSchedule[]): string | null =
 
         return `Horario asignado: ${todaySchedule.start}. Demora: ${delayText}`;
     }
-
     return null;
 }
 
-// --- Geolocation (Mantiene lógica local) ---
+// --- Geolocation ---
 
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371e3;
@@ -82,7 +77,6 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
     Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
     Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
   return R * c;
 };
 
@@ -100,16 +94,11 @@ export const getCurrentPosition = (): Promise<GeolocationPosition> => {
   });
 };
 
-// --- SUPABASE STORAGE HELPERS ---
+// --- Storage Helpers ---
 
-// Convierte Base64 a Blob y lo sube al bucket 'fichadas'
-// Ahora permite nombres de archivo personalizados para mejor organización
 const uploadBase64Image = async (base64Data: string, folder: string, customFileName?: string): Promise<string | null> => {
   try {
-    // 1. Limpiar cabecera del base64
     const base64Clean = base64Data.replace(/^data:image\/\w+;base64,/, "");
-    
-    // 2. Convertir a buffer binario
     const byteCharacters = atob(base64Clean);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
@@ -118,44 +107,28 @@ const uploadBase64Image = async (base64Data: string, folder: string, customFileN
     const byteArray = new Uint8Array(byteNumbers);
     const blob = new Blob([byteArray], { type: 'image/jpeg' });
 
-    // 3. Generar nombre único si no se provee uno
     const finalFileName = customFileName 
         ? `${folder}/${customFileName}`
         : `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
 
-    // 4. Subir a Supabase Storage (Bucket: 'fichadas')
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from('fichadas')
-      .upload(finalFileName, blob, {
-        contentType: 'image/jpeg',
-        upsert: true 
-      });
+      .upload(finalFileName, blob, { contentType: 'image/jpeg', upsert: true });
 
-    if (error) {
-      console.error('Error uploading image to Supabase:', error);
-      // Intentar mostrar detalles del error
-      if ((error as any).statusCode === '404') {
-          console.error("Bucket 'fichadas' not found. Please create it.");
-      }
-      return null;
-    }
+    if (error) return null;
 
-    // 5. Obtener URL Pública
     const { data: publicUrlData } = supabase.storage
       .from('fichadas')
       .getPublicUrl(finalFileName);
 
     return publicUrlData.publicUrl;
-
   } catch (error) {
-    console.error('Error processing image upload logic:', error);
     return null;
   }
 };
 
-// --- SUPABASE DATA OPERATIONS ---
+// --- Mapping Helpers ---
 
-// Helpers para mapear de Snake Case (DB) a Camel Case (App)
 const mapUserFromDB = (u: any): User => ({
   id: u.id,
   legajo: u.legajo || '',
@@ -166,7 +139,8 @@ const mapUserFromDB = (u: any): User => ({
   dressCode: u.dress_code || '',
   referenceImage: u.reference_image || null,
   schedule: u.schedule || [],
-  assignedLocations: u.assigned_locations || []
+  assignedLocations: u.assigned_locations || [],
+  hourlyRate: u.hourly_rate || 0
 });
 
 const mapLocationFromDB = (l: any): Location => ({
@@ -196,37 +170,23 @@ const mapLogFromDB = (l: any): LogEntry => ({
   aiFeedback: l.ai_feedback || ''
 });
 
-// USERS
+// --- DATA OPERATIONS ---
+
 export const fetchUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase.from('users').select('*');
-  if (error) {
-      // Si la tabla no existe, no crashear, devolver vacío.
-      if (error.code === '42P01') {
-          console.warn("Table 'users' does not exist yet.");
-          return [];
-      }
-      console.error('Error fetching users:', error);
-      return [];
-  }
+  if (error) return [];
   return data.map(mapUserFromDB);
 };
 
 export const saveUser = async (user: User) => {
   let referenceImageUrl = user.referenceImage;
-
-  // Si la imagen es Base64 (nueva subida), la subimos a Storage
   if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
-    // Usamos el ID o DNI para el nombre del archivo, para que sea ordenado
     const fileName = `${user.dni}_ref_${Date.now()}.jpg`;
     const uploadedUrl = await uploadBase64Image(user.referenceImage, 'users', fileName);
-    if (uploadedUrl) {
-      referenceImageUrl = uploadedUrl;
-    }
+    if (uploadedUrl) referenceImageUrl = uploadedUrl;
   }
 
-  // Convert to DB format
   const dbUser = {
-    id: user.id.length < 10 ? undefined : user.id, 
     dni: user.dni,
     password: user.password,
     name: user.name,
@@ -235,30 +195,24 @@ export const saveUser = async (user: User) => {
     dress_code: user.dressCode,
     reference_image: referenceImageUrl,
     schedule: user.schedule,
-    assigned_locations: user.assignedLocations
+    assigned_locations: user.assignedLocations,
+    hourly_rate: user.hourlyRate
   };
 
   if (user.id && user.id.length > 20) {
-      const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
-      if (error) console.error('Error updating user:', error);
+      await supabase.from('users').update(dbUser).eq('id', user.id);
   } else {
-      const { error } = await supabase.from('users').insert(dbUser);
-      if (error) console.error('Error inserting user:', error);
+      await supabase.from('users').insert(dbUser);
   }
 };
 
 export const deleteUser = async (userId: string) => {
-  const { error } = await supabase.from('users').delete().eq('id', userId);
-  if (error) console.error('Error deleting user:', error);
+  await supabase.from('users').delete().eq('id', userId);
 }
 
-// LOCATIONS
 export const fetchLocations = async (): Promise<Location[]> => {
   const { data, error } = await supabase.from('locations').select('*');
-  if (error) {
-    console.error('Error fetching locations:', error);
-    return [];
-  }
+  if (error) return [];
   return data.map(mapLocationFromDB);
 };
 
@@ -271,7 +225,6 @@ export const saveLocation = async (location: Location) => {
     lng: location.lng,
     radius_meters: location.radiusMeters
   };
-
   if (location.id && location.id.length > 20) {
       await supabase.from('locations').update(dbLocation).eq('id', location.id);
   } else {
@@ -283,79 +236,37 @@ export const deleteLocation = async (locId: string) => {
   await supabase.from('locations').delete().eq('id', locId);
 }
 
-// LOGS (FICHADAS)
 export const fetchLogs = async (): Promise<LogEntry[]> => {
-  const { data, error } = await supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
-  if (error) {
-    if (error.code === '42P01') return [];
-    console.error('Error fetching logs:', error);
-    return [];
-  }
+  const { data, error } = await supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(200);
+  if (error) return [];
   return data.map(mapLogFromDB);
 };
 
-// Obtener logs por rango de fecha (FILTRO)
 export const fetchLogsByDateRange = async (startDate: Date, endDate: Date): Promise<LogEntry[]> => {
-    const startIso = startDate.toISOString();
-    const endIso = endDate.toISOString();
-
     const { data, error } = await supabase
         .from('logs')
         .select('*')
-        .gte('timestamp', startIso)
-        .lte('timestamp', endIso)
+        .gte('timestamp', startDate.toISOString())
+        .lte('timestamp', endDate.toISOString())
         .order('timestamp', { ascending: false });
-
-    if (error) {
-        console.error('Error fetching logs by range:', error);
-        return [];
-    }
+    if (error) return [];
     return data.map(mapLogFromDB);
 };
 
-// Nueva función para obtener TODOS los logs del día actual para el Monitor
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const { data, error } = await supabase
-        .from('logs')
-        .select('*')
-        .gte('timestamp', startOfDay.toISOString())
-        .lte('timestamp', endOfDay.toISOString())
-        .order('timestamp', { ascending: false });
-
-    if (error) {
-        console.error('Error fetching today logs:', error);
-        return [];
-    }
-    return data.map(mapLogFromDB);
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    return fetchLogsByDateRange(startOfDay, endOfDay);
 };
 
 export const addLog = async (entry: LogEntry) => {
   let photoUrl = entry.photoEvidence;
-
-  // Subir evidencia a Storage si es Base64
   if (entry.photoEvidence && entry.photoEvidence.startsWith('data:image')) {
-    // Crear estructura de carpetas: evidence / AÑO / MES / usuario_fecha.jpg
     const dateObj = new Date();
-    const year = dateObj.getFullYear();
-    const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
-    const folderPath = `evidence/${year}/${month}`;
-    
-    // Nombre de archivo descriptivo
+    const folderPath = `evidence/${dateObj.getFullYear()}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}`;
     const fileName = `${entry.userName.replace(/\s+/g, '_')}_${entry.type}_${Date.now()}.jpg`;
-    
     const uploadedUrl = await uploadBase64Image(entry.photoEvidence, folderPath, fileName);
-    
-    if (uploadedUrl) {
-      console.log("Fichada image uploaded successfully:", uploadedUrl);
-      photoUrl = uploadedUrl;
-    } else {
-      console.warn("Failed to upload fichada image. Saving base64 directly to DB (not recommended for large scale).");
-    }
+    if (uploadedUrl) photoUrl = uploadedUrl;
   }
 
   const dbLog = {
@@ -373,51 +284,60 @@ export const addLog = async (entry: LogEntry) => {
     photo_evidence: photoUrl, 
     ai_feedback: entry.aiFeedback
   };
-
-  const { error } = await supabase.from('logs').insert(dbLog);
-  if (error) console.error('Error saving log:', error);
+  await supabase.from('logs').insert(dbLog);
 };
 
-// APP CONFIG (LOGO)
+// --- INCIDENCES ---
+
+export const fetchIncidents = async (userId?: string): Promise<Incident[]> => {
+  let query = supabase.from('incidents').select('*').order('date', { ascending: false });
+  if (userId) query = query.eq('user_id', userId);
+  const { data, error } = await query;
+  if (error) return [];
+  return data.map(i => ({
+    id: i.id,
+    userId: i.user_id,
+    date: i.date,
+    type: i.type,
+    amount: i.amount,
+    description: i.description
+  }));
+};
+
+export const saveIncident = async (incident: Partial<Incident>) => {
+  const dbData = {
+    user_id: incident.userId,
+    date: incident.date,
+    type: incident.type,
+    amount: incident.amount,
+    description: incident.description
+  };
+  if (incident.id) {
+    await supabase.from('incidents').update(dbData).eq('id', incident.id);
+  } else {
+    await supabase.from('incidents').insert(dbData);
+  }
+};
+
+export const deleteIncident = async (id: string) => {
+  await supabase.from('incidents').delete().eq('id', id);
+};
+
+// --- AUTH & CONFIG ---
 
 export const fetchCompanyLogo = async (): Promise<string | null> => {
-  const { data, error } = await supabase
-    .from('app_settings')
-    .select('value')
-    .eq('key', 'company_logo')
-    .single();
-  
-  if (error) {
-      if (error.code === '42P01') {
-          console.error("Tabla 'app_settings' no existe. Ejecuta el SQL de Setup.");
-      }
-      return null;
-  }
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'company_logo').single();
   return data ? data.value : null;
 };
 
 export const saveCompanyLogo = async (base64Image: string): Promise<string | null> => {
-   // Subir a Storage
-   // Usamos un nombre fijo o timestamp para el logo
    const fileName = `company_logo_${Date.now()}.jpg`;
    const uploadedUrl = await uploadBase64Image(base64Image, 'config', fileName);
-   
    if (!uploadedUrl) return null;
-
-   // Guardar en DB
-   const { error } = await supabase
-     .from('app_settings')
-     .upsert({ key: 'company_logo', value: uploadedUrl });
-   
-   if (error) {
-     console.error('Error updating company logo:', error);
-     return null;
-   }
-   
+   await supabase.from('app_settings').upsert({ key: 'company_logo', value: uploadedUrl });
    return uploadedUrl;
 };
 
-// Authentication
 export const authenticateUser = async (dni: string, password: string): Promise<User | null> => {
     const { data, error } = await supabase
         .from('users')
@@ -425,7 +345,6 @@ export const authenticateUser = async (dni: string, password: string): Promise<U
         .or(`dni.eq.${dni},legajo.eq.${dni}`)
         .eq('password', password)
         .single();
-    
     if (error || !data) return null;
     return mapUserFromDB(data);
 }

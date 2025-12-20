@@ -1,3 +1,4 @@
+
 export enum Role {
   ADMIN = 'Admin',
   WAITER = 'Mozo',
@@ -16,8 +17,8 @@ export interface WorkSchedule {
 export interface Location {
   id: string;
   name: string;
-  address: string; // Nueva: Dirección física
-  city: string;    // Nueva: Localidad
+  address: string; 
+  city: string;    
   lat: number;
   lng: number;
   radiusMeters: number;
@@ -30,11 +31,11 @@ export interface User {
   password: string;
   name: string;
   role: Role;
-  // jobTitle removed per request
   dressCode: string;   
   referenceImage: string | null; 
   schedule: WorkSchedule[]; 
-  assignedLocations?: string[]; // Array of Location IDs
+  assignedLocations?: string[];
+  hourlyRate?: number; // Nuevo: Tarifa por hora
 }
 
 export interface LogEntry {
@@ -52,6 +53,15 @@ export interface LogEntry {
   identityStatus: 'MATCH' | 'NO_MATCH' | 'NO_REF' | 'SKIPPED'; 
   photoEvidence: string;
   aiFeedback: string;
+}
+
+export interface Incident {
+  id: string;
+  userId: string;
+  date: string;
+  type: 'LATE' | 'ABSENCE' | 'DISCOUNT' | 'BONUS' | 'DAMAGE';
+  amount: number; // Monto a sumar o restar
+  description: string;
 }
 
 export interface ValidationResult {
