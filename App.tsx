@@ -1111,13 +1111,26 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
       if (!nearestLoc) throw new Error("Sin ubicaciones");
       const isInside = minDistance <= (nearestLoc as Location).radiusMeters;
       
-      setStep('CAMERA');
-      const onSchedule = isWithinSchedule(user.schedule); // Re-check strictly for logging status
-      setResult({
-        id: crypto.randomUUID(), userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
-        locationId: (nearestLoc as Location).id, locationName: (nearestLoc as Location).name, locationStatus: isInside ? 'VALID' : 'INVALID',
-        scheduleStatus: onSchedule ? 'ON_TIME' : 'OFF_SCHEDULE', dressCodeStatus: 'FAIL', identityStatus: 'NO_MATCH', photoEvidence: '', aiFeedback: ''
-      });
+      const onSchedule = isWithinSchedule(user.schedule);
+      
+      // LOGIC OVERRIDE: If role is EXTRA_WAITER, skip camera and AI analysis
+      if (user.role === Role.EXTRA_WAITER) {
+          setResult({
+            id: crypto.randomUUID(), userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
+            locationId: (nearestLoc as Location).id, locationName: (nearestLoc as Location).name, locationStatus: isInside ? 'VALID' : 'INVALID',
+            scheduleStatus: onSchedule ? 'ON_TIME' : 'OFF_SCHEDULE', 
+            dressCodeStatus: 'SKIPPED', identityStatus: 'SKIPPED', 
+            photoEvidence: '', aiFeedback: 'Validación biométrica omitida por rol eventual.'
+          });
+          setStep('RESULT');
+      } else {
+          setStep('CAMERA');
+          setResult({
+            id: crypto.randomUUID(), userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
+            locationId: (nearestLoc as Location).id, locationName: (nearestLoc as Location).name, locationStatus: isInside ? 'VALID' : 'INVALID',
+            scheduleStatus: onSchedule ? 'ON_TIME' : 'OFF_SCHEDULE', dressCodeStatus: 'FAIL', identityStatus: 'NO_MATCH', photoEvidence: '', aiFeedback: ''
+          });
+      }
     } catch (err: any) {
       if (err.code === 1 || err.message.includes('permission')) {
           setStep('PERMISSION_DENIED');
@@ -1139,7 +1152,6 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
         identityStatus: user.referenceImage ? (aiResponse.identityMatch ? 'MATCH' : 'NO_MATCH') : 'NO_REF',
         dressCodeStatus: aiResponse.dressCodeMatches ? 'PASS' : 'FAIL', aiFeedback: aiResponse.description
       };
-      // We do NOT save automatically here anymore, wait for confirmation
       setResult(finalEntry);
       setStep('RESULT');
     } catch (err) { setStep('DASHBOARD'); }
@@ -1149,7 +1161,6 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
       await addLog(entry);
       setStep('SUCCESS');
       
-      // Auto-logout after 3 seconds
       setTimeout(() => {
           onFinished();
       }, 3000);
@@ -1167,7 +1178,6 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
   
   const handleSaveWithIncident = async () => {
       if (result) {
-          // Force save even with issues
           triggerSuccessSequence(result);
       }
   };
@@ -1284,7 +1294,13 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                   {result.type === 'CHECK_IN' ? 'Entrada Registrada' : 'Salida Registrada'}
               </div>
               <div className="p-6 text-center space-y-4">
-                  <img src={result.photoEvidence} className="w-24 h-24 rounded-full mx-auto object-cover border-4 border-slate-100" alt="evidencia" />
+                  {result.photoEvidence ? (
+                      <img src={result.photoEvidence} className="w-24 h-24 rounded-full mx-auto object-cover border-4 border-slate-100" alt="evidencia" />
+                  ) : (
+                      <div className="w-24 h-24 bg-slate-100 rounded-full mx-auto flex items-center justify-center text-slate-400 border-4 border-slate-50">
+                          <UserIcon size={40} />
+                      </div>
+                  )}
                   <div className="space-y-2 text-left bg-slate-50 p-4 rounded-lg">
                        <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Horario</span>
@@ -1297,7 +1313,6 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                        </div>
                        <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Estado Horario</span>
-                           {/* Logic override: If there is delay info, display Late warning instead of On Time */}
                            <span className={`font-bold text-sm ${delayInfo ? 'text-orange-600' : (result.scheduleStatus === 'ON_TIME' ? 'text-green-600' : 'text-red-500')}`}>
                                {delayInfo ? 'Llegada Tarde' : (result.scheduleStatus === 'ON_TIME' ? 'En Horario' : 'Fuera de Horario')}
                            </span>
@@ -1313,17 +1328,18 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                        </div>
                        <div className="flex justify-between border-b pb-2">
                            <span className="text-slate-500 text-sm">Biometría</span>
-                           <span className={`font-bold text-sm ${result.identityStatus === 'MATCH' ? 'text-green-600' : 'text-red-500'}`}>{result.identityStatus === 'MATCH' ? 'Aprobada' : 'Revisar'}</span>
+                           <span className={`font-bold text-sm ${result.identityStatus === 'MATCH' ? 'text-green-600' : (result.identityStatus === 'SKIPPED' ? 'text-slate-400' : 'text-red-500')}`}>
+                               {result.identityStatus === 'MATCH' ? 'Aprobada' : (result.identityStatus === 'SKIPPED' ? 'Omitida' : 'Revisar')}
+                           </span>
                        </div>
                        <div className="flex justify-between pb-2">
                            <span className="text-slate-500 text-sm">Vestimenta</span>
-                           <span className={`font-bold text-sm ${result.dressCodeStatus === 'PASS' ? 'text-green-600' : 'text-orange-600'}`}>
-                               {result.dressCodeStatus === 'PASS' ? 'Correcta' : 'Incorrecta'}
+                           <span className={`font-bold text-sm ${result.dressCodeStatus === 'PASS' ? 'text-green-600' : (result.dressCodeStatus === 'SKIPPED' ? 'text-slate-400' : 'text-orange-600')}`}>
+                               {result.dressCodeStatus === 'PASS' ? 'Correcta' : (result.dressCodeStatus === 'SKIPPED' ? 'Omitida' : 'Incorrecta')}
                            </span>
                        </div>
                   </div>
 
-                  {/* AI Feedback Section */}
                   <div className="mt-4 bg-slate-100 p-3 rounded-lg text-left border border-slate-200">
                       <p className="text-xs font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
                           <Eye size={12}/> Detalle de Análisis (IA)
@@ -1334,7 +1350,7 @@ const ClockInModule = ({ user, onFinished }: { user: User, onFinished: () => voi
                   </div>
                   
                   {/* Actions based on result */}
-                  {result.identityStatus === 'MATCH' ? (
+                  {(result.identityStatus === 'MATCH' || result.identityStatus === 'SKIPPED') ? (
                       <button onClick={handleFinalSave} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold mt-4">
                           Finalizar
                       </button>
@@ -1395,14 +1411,11 @@ const LogsDashboard = () => {
 
     useEffect(() => {
         loadLogs();
-        // Removed auto-refresh here to avoid overriding user filters with default recent logs
-    }, []); // Only on mount
+    }, []);
 
     const handleSearch = () => {
         loadLogs();
     }
-
-    // --- Export Functions ---
 
     const handleExportCSV = () => {
         const headers = ["Legajo", "Nombre", "Tipo", "Fecha", "Hora", "Salón", "Estado Ubicación", "Estado Biometría", "Foto URL"];
@@ -1420,7 +1433,7 @@ const LogsDashboard = () => {
 
         const csvContent = [
             headers.join(','), 
-            ...rows.map(row => row.map(cell => `"${cell}"`).join(',')) // Wrap cells in quotes
+            ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
         ].join('\n');
 
         const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1457,7 +1470,6 @@ const LogsDashboard = () => {
     const handleExportPDF = () => {
         const doc = new jsPDF();
         
-        // Header
         doc.setFontSize(18);
         doc.text("Reporte de Asistencia", 14, 20);
         
@@ -1465,7 +1477,6 @@ const LogsDashboard = () => {
         doc.setTextColor(100);
         doc.text(`Desde: ${new Date(startDate).toLocaleDateString()}  Hasta: ${new Date(endDate).toLocaleDateString()}`, 14, 28);
         
-        // Table Data
         const tableBody = logs.map(log => [
             log.legajo,
             log.userName,
@@ -1480,21 +1491,19 @@ const LogsDashboard = () => {
             body: tableBody,
             startY: 35,
             theme: 'striped',
-            headStyles: { fillColor: [234, 88, 12] }, // Orange color matching brand
+            headStyles: { fillColor: [234, 88, 12] },
         });
 
         doc.save(`Reporte_Fichadas_${startDate}_al_${endDate}.pdf`);
         setShowExportMenu(false);
     };
 
-    // Helper to generate fake hash for visual fidelity
     const getShortHash = (id: string) => id.substring(0, 16);
 
     return (
         <div className="max-w-7xl mx-auto p-6">
             <h1 className="text-2xl font-bold text-slate-800 mb-6">Historial de Fichadas</h1>
             
-            {/* Filters Bar */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-col md:flex-row items-end gap-4">
                 <div className="flex flex-col gap-1 w-full md:w-auto">
                     <label className="text-xs font-bold text-slate-500 uppercase">Desde</label>
@@ -1577,47 +1586,45 @@ const LogsDashboard = () => {
                             onClick={() => setSelectedLog(log)}
                             className="flex items-center p-4 hover:bg-slate-50 transition-colors cursor-pointer gap-4"
                         >
-                            {/* 1. Photo */}
                             <div className="flex-shrink-0">
-                                <img 
-                                    src={log.photoEvidence} 
-                                    className="w-12 h-12 rounded bg-slate-200 object-cover" 
-                                    alt="Evidence" 
-                                />
+                                {log.photoEvidence ? (
+                                    <img 
+                                        src={log.photoEvidence} 
+                                        className="w-12 h-12 rounded bg-slate-200 object-cover" 
+                                        alt="Evidence" 
+                                    />
+                                ) : (
+                                    <div className="w-12 h-12 rounded bg-slate-100 flex items-center justify-center text-slate-300">
+                                        <UserIcon size={20} />
+                                    </div>
+                                )}
                             </div>
 
-                            {/* 2. Legajo */}
                             <div className="w-20 text-sm font-medium text-orange-700 hidden sm:block">
                                 {log.legajo || log.userId.substring(0,6)}
                             </div>
 
-                            {/* 3. Name */}
                             <div className="flex-1 min-w-[150px]">
                                 <div className="font-bold text-slate-800 text-sm">{log.userName}</div>
                             </div>
 
-                            {/* 4. Hash (Visual filler) */}
                             <div className="w-32 text-xs text-slate-400 font-mono hidden md:block truncate">
                                 {getShortHash(log.id)}
                             </div>
 
-                            {/* 5. Pin Icon */}
                             <div className="text-orange-600 hidden sm:block">
                                 <MapPin size={18} />
                             </div>
 
-                            {/* 6. Status */}
                             <div className="w-32 hidden lg:block text-right">
                                 <span className="text-xs font-bold text-orange-700">ONLINE-AUTOMATIC</span>
                             </div>
 
-                            {/* 7. Date & Time */}
                             <div className="w-32 text-right">
                                 <div className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</div>
                                 <div className="text-sm font-bold text-slate-800">{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                             </div>
                             
-                            {/* 8. Location Name */}
                             <div className="w-40 text-right text-xs text-slate-600 font-medium hidden md:block truncate pl-2">
                                 {log.locationName}
                             </div>
@@ -1643,18 +1650,26 @@ const LogsDashboard = () => {
                         </div>
                         
                         <div className="flex flex-col md:flex-row p-6 gap-8">
-                            {/* Left: Photo */}
                             <div className="w-full md:w-5/12">
                                 <div className="aspect-[3/4] bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
-                                    <img 
-                                        src={selectedLog.photoEvidence} 
-                                        className="w-full h-full object-cover" 
-                                        alt="Evidencia Grande" 
-                                    />
+                                    {selectedLog.photoEvidence ? (
+                                        <img 
+                                            src={selectedLog.photoEvidence} 
+                                            className="w-full h-full object-cover" 
+                                            alt="Evidencia Grande" 
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-slate-300 bg-slate-50">
+                                            <div className="text-center">
+                                                <UserIcon size={64} className="mx-auto mb-2 opacity-20" />
+                                                <p className="text-xs font-bold uppercase tracking-widest">Sin Foto</p>
+                                                <p className="text-[10px] text-slate-400 mt-1">Personal Eventual</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Right: Details */}
                             <div className="w-full md:w-7/12 flex flex-col gap-4">
                                 <div className="grid grid-cols-[120px_1fr] gap-y-3 text-sm">
                                     <div className="text-slate-500">Documento:</div>
@@ -1672,8 +1687,8 @@ const LogsDashboard = () => {
                                     </div>
 
                                     <div className="text-slate-500">Certeza:</div>
-                                    <div className={`font-bold ${selectedLog.identityStatus === 'MATCH' ? 'text-green-600' : 'text-red-600'}`}>
-                                        {selectedLog.identityStatus === 'MATCH' ? 'Identificado' : 'No identificado'}
+                                    <div className={`font-bold ${selectedLog.identityStatus === 'MATCH' ? 'text-green-600' : (selectedLog.identityStatus === 'SKIPPED' ? 'text-slate-400' : 'text-red-600')}`}>
+                                        {selectedLog.identityStatus === 'MATCH' ? 'Identificado' : (selectedLog.identityStatus === 'SKIPPED' ? 'Omitido (Mozo Extra)' : 'No identificado')}
                                     </div>
 
                                     <div className="text-slate-500">Fecha:</div>
@@ -1686,9 +1701,7 @@ const LogsDashboard = () => {
                                     <div className="font-medium text-slate-800">{selectedLog.locationName}</div>
                                 </div>
 
-                                {/* Fake Map Visual */}
                                 <div className="mt-4 flex-1 min-h-[150px] bg-slate-100 rounded-lg overflow-hidden border border-slate-200 relative">
-                                    {/* Static Map Image Placeholder or generic map visual */}
                                     <div className="w-full h-full bg-slate-200 flex items-center justify-center relative overflow-hidden">
                                          <div className="absolute inset-0 opacity-50 bg-[url('https://upload.wikimedia.org/wikipedia/commons/e/ec/World_map_blank_without_borders.svg')] bg-cover bg-center"></div>
                                          <div className="z-10 flex flex-col items-center">
@@ -1892,7 +1905,6 @@ const AdminDashboard = ({
     fetchUsers().then(setUsers);
   };
 
-  // Helper to get location names
   const getLocationNames = (ids?: string[]) => {
     if (!ids || ids.length === 0) return 'Ninguna';
     return ids.map(id => locations.find(l => l.id === id)?.name || id).join(', ');
@@ -1961,7 +1973,6 @@ const AdminDashboard = ({
          </div>
       </div>
 
-      {/* Modal for Create/Edit */}
       {(isCreating || editingUser) && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -1995,7 +2006,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('clock');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
-  // Fetch logo on initial load
   useEffect(() => {
     fetchCompanyLogo().then(setLogoUrl);
   }, []);
@@ -2013,7 +2023,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar for Desktop */}
       <Sidebar 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
@@ -2023,7 +2032,6 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-          {/* Header for Mobile */}
           <MobileHeader 
             activeTab={activeTab} 
             setActiveTab={setActiveTab} 
@@ -2038,7 +2046,6 @@ export default function App() {
             )}
             {activeTab === 'clock' && currentUser.role === Role.ADMIN && (
                 <div className="flex flex-col gap-6">
-                    {/* Admin can see the dashboard BUT also has a button to check in themselves */}
                     <div className="max-w-7xl mx-auto w-full px-6 pt-6">
                         <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex justify-between items-center">
                             <div>

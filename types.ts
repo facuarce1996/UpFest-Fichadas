@@ -1,6 +1,7 @@
 export enum Role {
   ADMIN = 'Admin',
   WAITER = 'Mozo',
+  EXTRA_WAITER = 'Mozo Extra',
   KITCHEN = 'Cocina',
   SECURITY = 'Seguridad',
   OTHER = 'Otro'
