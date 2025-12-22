@@ -123,6 +123,7 @@ const uploadBase64Image = async (base64Data: string, folder: string, customFileN
 
     return publicUrlData.publicUrl;
   } catch (error) {
+    console.error("Storage upload error:", error);
     return null;
   }
 };
@@ -130,7 +131,7 @@ const uploadBase64Image = async (base64Data: string, folder: string, customFileN
 // --- Mapping Helpers ---
 
 const mapUserFromDB = (u: any): User => ({
-  id: u.id,
+  id: String(u.id),
   legajo: u.legajo || '',
   dni: u.dni,
   password: u.password,
@@ -144,7 +145,7 @@ const mapUserFromDB = (u: any): User => ({
 });
 
 const mapLocationFromDB = (l: any): Location => ({
-  id: l.id,
+  id: String(l.id),
   name: l.name,
   address: l.address || '',
   city: l.city || '',
@@ -154,7 +155,7 @@ const mapLocationFromDB = (l: any): Location => ({
 });
 
 const mapLogFromDB = (l: any): LogEntry => ({
-  id: l.id,
+  id: String(l.id),
   userId: l.user_id,
   userName: l.user_name,
   legajo: l.legajo || '',
@@ -173,67 +174,84 @@ const mapLogFromDB = (l: any): LogEntry => ({
 // --- DATA OPERATIONS ---
 
 export const fetchUsers = async (): Promise<User[]> => {
-  const { data, error } = await supabase.from('users').select('*');
+  const { data, error } = await supabase.from('users').select('*').order('name');
   if (error) return [];
   return data.map(mapUserFromDB);
 };
 
 export const saveUser = async (user: User) => {
-  let referenceImageUrl = user.referenceImage;
-  if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
-    const fileName = `${user.dni}_ref_${Date.now()}.jpg`;
-    const uploadedUrl = await uploadBase64Image(user.referenceImage, 'users', fileName);
-    if (uploadedUrl) referenceImageUrl = uploadedUrl;
-  }
+  try {
+    let referenceImageUrl = user.referenceImage;
+    
+    if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
+      const fileName = `${user.dni}_ref_${Date.now()}.jpg`;
+      const uploadedUrl = await uploadBase64Image(user.referenceImage, 'users', fileName);
+      if (uploadedUrl) referenceImageUrl = uploadedUrl;
+    }
 
-  const dbUser = {
-    dni: user.dni,
-    password: user.password,
-    name: user.name,
-    role: user.role,
-    legajo: user.legajo,
-    dress_code: user.dressCode,
-    reference_image: referenceImageUrl,
-    schedule: user.schedule,
-    assigned_locations: user.assignedLocations,
-    hourly_rate: user.hourlyRate
-  };
+    // Se eliminaron 'hourly_rate' y 'assigned_locations' porque no existen en la tabla actual
+    const dbUser: any = {
+      dni: user.dni,
+      password: user.password,
+      name: user.name,
+      role: user.role,
+      legajo: user.legajo,
+      dress_code: user.dress_code,
+      reference_image: referenceImageUrl,
+      schedule: user.schedule || []
+    };
 
-  if (user.id && user.id.length > 20) {
-      await supabase.from('users').update(dbUser).eq('id', user.id);
-  } else {
-      await supabase.from('users').insert(dbUser);
+    if (user.id && user.id !== "" && user.id !== "0") {
+      const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase.from('users').insert(dbUser);
+      if (error) throw new Error(error.message);
+    }
+  } catch (err: any) {
+    console.error("Critical error in saveUser:", err);
+    throw err;
   }
 };
 
 export const deleteUser = async (userId: string) => {
-  await supabase.from('users').delete().eq('id', userId);
+  const { error } = await supabase.from('users').delete().eq('id', userId);
+  if (error) throw new Error(error.message);
 }
 
 export const fetchLocations = async (): Promise<Location[]> => {
-  const { data, error } = await supabase.from('locations').select('*');
+  const { data, error } = await supabase.from('locations').select('*').order('name');
   if (error) return [];
   return data.map(mapLocationFromDB);
 };
 
 export const saveLocation = async (location: Location) => {
-  const dbLocation = {
-    name: location.name,
-    address: location.address,
-    city: location.city,
-    lat: location.lat,
-    lng: location.lng,
-    radius_meters: location.radiusMeters
-  };
-  if (location.id && location.id.length > 20) {
-      await supabase.from('locations').update(dbLocation).eq('id', location.id);
-  } else {
-      await supabase.from('locations').insert(dbLocation);
+  try {
+    const dbLocation = {
+      name: location.name,
+      address: location.address,
+      city: location.city,
+      lat: Number(location.lat) || 0,
+      lng: Number(location.lng) || 0,
+      radius_meters: Number(location.radiusMeters) || 100
+    };
+    
+    if (location.id && location.id !== "" && location.id !== "0") {
+      const { error } = await supabase.from('locations').update(dbLocation).eq('id', location.id);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase.from('locations').insert(dbLocation);
+      if (error) throw new Error(error.message);
+    }
+  } catch (err: any) {
+    console.error("Critical error in saveLocation:", err);
+    throw err;
   }
 };
 
 export const deleteLocation = async (locId: string) => {
-  await supabase.from('locations').delete().eq('id', locId);
+  const { error } = await supabase.from('locations').delete().eq('id', locId);
+  if (error) throw new Error(error.message);
 }
 
 export const fetchLogs = async (): Promise<LogEntry[]> => {
@@ -279,12 +297,14 @@ export const addLog = async (entry: LogEntry) => {
     location_name: entry.locationName,
     location_status: entry.locationStatus,
     schedule_status: entry.scheduleStatus,
+    // Fix: Using correct camelCase property names from the LogEntry interface
     dress_code_status: entry.dressCodeStatus,
     identity_status: entry.identityStatus,
     photo_evidence: photoUrl, 
     ai_feedback: entry.aiFeedback
   };
-  await supabase.from('logs').insert(dbLog);
+  const { error } = await supabase.from('logs').insert(dbLog);
+  if (error) throw new Error(error.message);
 };
 
 // --- INCIDENCES ---
@@ -295,7 +315,7 @@ export const fetchIncidents = async (userId?: string): Promise<Incident[]> => {
   const { data, error } = await query;
   if (error) return [];
   return data.map(i => ({
-    id: i.id,
+    id: String(i.id),
     userId: i.user_id,
     date: i.date,
     type: i.type,
@@ -312,15 +332,18 @@ export const saveIncident = async (incident: Partial<Incident>) => {
     amount: incident.amount,
     description: incident.description
   };
-  if (incident.id) {
-    await supabase.from('incidents').update(dbData).eq('id', incident.id);
+  if (incident.id && incident.id !== "" && incident.id !== "0") {
+    const { error } = await supabase.from('incidents').update(dbData).eq('id', incident.id);
+    if (error) throw new Error(error.message);
   } else {
-    await supabase.from('incidents').insert(dbData);
+    const { error } = await supabase.from('incidents').insert(dbData);
+    if (error) throw new Error(error.message);
   }
 };
 
 export const deleteIncident = async (id: string) => {
-  await supabase.from('incidents').delete().eq('id', id);
+  const { error } = await supabase.from('incidents').delete().eq('id', id);
+  if (error) throw new Error(error.message);
 };
 
 // --- AUTH & CONFIG ---
@@ -334,7 +357,8 @@ export const saveCompanyLogo = async (base64Image: string): Promise<string | nul
    const fileName = `company_logo_${Date.now()}.jpg`;
    const uploadedUrl = await uploadBase64Image(base64Image, 'config', fileName);
    if (!uploadedUrl) return null;
-   await supabase.from('app_settings').upsert({ key: 'company_logo', value: uploadedUrl });
+   const { error } = await supabase.from('app_settings').upsert({ key: 'company_logo', value: uploadedUrl });
+   if (error) throw new Error(error.message);
    return uploadedUrl;
 };
 

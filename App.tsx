@@ -27,6 +27,12 @@ const UserForm = ({ initialData, onSubmit, onCancel }: { initialData?: User | nu
   });
   const [imagePreview, setImagePreview] = useState<string | null>(initialData?.referenceImage || null);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  const [editingDay, setEditingDay] = useState('Viernes');
+  const [startTime, setStartTime] = useState('20:00');
+  const [endTime, setEndTime] = useState('04:00');
 
   useEffect(() => { fetchLocations().then(setLocations); }, []);
 
@@ -47,13 +53,34 @@ const UserForm = ({ initialData, onSubmit, onCancel }: { initialData?: User | nu
     setFormData(prev => ({ ...prev, assignedLocations: current.includes(locId) ? current.filter(id => id !== locId) : [...current, locId] }));
   };
 
+  const addSchedule = () => {
+    const newSchedule = [...formData.schedule.filter(s => s.day !== editingDay), { day: editingDay, start: startTime, end: endTime }];
+    setFormData(prev => ({ ...prev, schedule: newSchedule }));
+  };
+
+  const removeSchedule = (day: string) => {
+    setFormData(prev => ({ ...prev, schedule: prev.schedule.filter(s => s.day !== day) }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit(formData);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit(formData); }} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar">
       <div className="grid grid-cols-2 gap-4">
         <div><label className="text-xs font-bold text-slate-500 uppercase">DNI</label><input type="text" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" required /></div>
         <div><label className="text-xs font-bold text-slate-500 uppercase">Legajo</label><input type="text" value={formData.legajo} onChange={e => setFormData({...formData, legajo: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" /></div>
       </div>
       <div><label className="text-xs font-bold text-slate-500 uppercase">Nombre Completo</label><input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" required /></div>
+      
       <div className="grid grid-cols-2 gap-4">
           <div><label className="text-xs font-bold text-slate-500 uppercase">Rol</label>
               <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as Role})} className="w-full border border-slate-200 rounded-lg p-2 text-sm">
@@ -62,25 +89,51 @@ const UserForm = ({ initialData, onSubmit, onCancel }: { initialData?: User | nu
           </div>
           <div><label className="text-xs font-bold text-slate-500 uppercase">Valor Hora ($)</label><input type="number" value={formData.hourlyRate} onChange={e => setFormData({...formData, hourlyRate: parseFloat(e.target.value)})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" /></div>
       </div>
+
+      <div><label className="text-xs font-bold text-slate-500 uppercase">Indicaciones de Vestimenta</label><textarea value={formData.dressCode} onChange={e => setFormData({...formData, dressCode: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="Ej: Camisa blanca, pantalón negro..." rows={2} /></div>
+
+      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+          <label className="text-xs font-bold text-slate-500 uppercase mb-3 block">Horarios</label>
+          <div className="flex gap-2 mb-3">
+              <select value={editingDay} onChange={e => setEditingDay(e.target.value)} className="flex-1 text-xs border border-slate-200 rounded p-1">{days.map(d => <option key={d}>{d}</option>)}</select>
+              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="text-xs border border-slate-200 rounded p-1 w-20" />
+              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="text-xs border border-slate-200 rounded p-1 w-20" />
+              <button type="button" onClick={addSchedule} className="p-1 bg-slate-900 text-white rounded"><Plus size={16}/></button>
+          </div>
+          <div className="space-y-1">
+              {formData.schedule.map(s => (
+                  <div key={s.day} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-100">
+                      <span className="font-bold">{s.day}:</span> <span>{s.start} a {s.end}</span>
+                      <button type="button" onClick={() => removeSchedule(s.day)} className="text-red-400 hover:text-red-600"><Trash2 size={12}/></button>
+                  </div>
+              ))}
+          </div>
+      </div>
+
       <div><label className="text-xs font-bold text-slate-500 uppercase">Contraseña</label><input type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" required /></div>
+      
       <div>
-         <label className="text-xs font-bold text-slate-500 uppercase">Imagen de Referencia (Biometría)</label>
+         <label className="text-xs font-bold text-slate-500 uppercase">Biometría (Referencia)</label>
          <input type="file" onChange={handleImageUpload} className="block w-full text-xs mt-1" />
          {imagePreview && <img src={imagePreview} className="mt-2 w-20 h-20 rounded-lg object-cover border" alt="Preview" />}
       </div>
+
       <div>
-        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Salones Asignados</label>
+        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Salones</label>
         <div className="flex flex-wrap gap-2">
             {locations.map(loc => (
-                <button key={loc.id} type="button" onClick={() => toggleLocation(loc.id)} className={`px-3 py-1 rounded-full text-xs font-medium border transition ${formData.assignedLocations?.includes(loc.id) ? 'bg-orange-600 text-white border-orange-700' : 'bg-white text-slate-600 border-slate-200'}`}>
+                <button key={loc.id} type="button" onClick={() => toggleLocation(loc.id)} className={`px-3 py-1 rounded-full text-[10px] font-bold border transition ${formData.assignedLocations?.includes(loc.id) ? 'bg-orange-600 text-white border-orange-700' : 'bg-white text-slate-600 border-slate-200'}`}>
                     {loc.name}
                 </button>
             ))}
         </div>
       </div>
-      <div className="flex gap-3 pt-4 border-t">
-          <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-          <button type="submit" className="flex-1 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-800 transition">Guardar Usuario</button>
+
+      <div className="flex gap-3 pt-4 border-t sticky bottom-0 bg-white z-10">
+          <button type="button" onClick={onCancel} disabled={isSubmitting} className="flex-1 px-4 py-3 border border-slate-200 rounded-2xl text-xs font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition">Cancelar</button>
+          <button type="submit" disabled={isSubmitting} className="flex-1 bg-slate-900 text-white px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition shadow-xl shadow-slate-200 disabled:opacity-50">
+            {isSubmitting ? 'Guardando...' : 'Guardar'}
+          </button>
       </div>
     </form>
   );
@@ -91,6 +144,7 @@ const LocationForm = ({ initialData, onSubmit, onCancel }: { initialData?: Locat
         id: '', name: '', address: '', city: '', lat: 0, lng: 0, radiusMeters: 100,
         ...initialData
     });
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleGetLocation = async () => {
         try {
@@ -99,20 +153,33 @@ const LocationForm = ({ initialData, onSubmit, onCancel }: { initialData?: Locat
         } catch (e) { alert("No se pudo obtener la ubicación actual."); }
     };
 
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (isSubmitting) return;
+      setIsSubmitting(true);
+      try {
+        await onSubmit(formData);
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
     return (
-        <form onSubmit={e => { e.preventDefault(); onSubmit(formData); }} className="space-y-4">
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Nombre del Salón</label><input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" required /></div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Nombre</label><input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" required /></div>
             <div><label className="text-xs font-bold text-slate-500 uppercase">Dirección</label><input type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" /></div>
             <div className="grid grid-cols-2 gap-4">
                 <div><label className="text-xs font-bold text-slate-500 uppercase">Latitud</label><input type="number" step="any" value={formData.lat} onChange={e => setFormData({...formData, lat: parseFloat(e.target.value)})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" required /></div>
                 <div><label className="text-xs font-bold text-slate-500 uppercase">Longitud</label><input type="number" step="any" value={formData.lng} onChange={e => setFormData({...formData, lng: parseFloat(e.target.value)})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" required /></div>
             </div>
-            <button type="button" onClick={handleGetLocation} className="text-xs font-bold text-orange-600 flex items-center gap-1 hover:underline"><MapPin size={14} /> Usar mi ubicación actual</button>
-            <div><label className="text-xs font-bold text-slate-500 uppercase">Radio de Tolerancia (metros)</label><input type="number" value={formData.radiusMeters} onChange={e => setFormData({...formData, radiusMeters: parseInt(e.target.value)})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" /></div>
+            <button type="button" onClick={handleGetLocation} className="text-xs font-bold text-orange-600 flex items-center gap-1 hover:underline"><MapPin size={14} /> Mi ubicación actual</button>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Radio Tolerancia (m)</label><input type="number" value={formData.radiusMeters} onChange={e => setFormData({...formData, radiusMeters: parseInt(e.target.value)})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" /></div>
             
             <div className="flex gap-3 pt-4 border-t">
-                <button type="button" onClick={onCancel} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-                <button type="submit" className="flex-1 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-800 transition">Guardar Salón</button>
+                <button type="button" onClick={onCancel} disabled={isSubmitting} className="flex-1 px-4 py-3 border border-slate-200 rounded-2xl text-xs font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition">Cancelar</button>
+                <button type="submit" disabled={isSubmitting} className="flex-1 bg-slate-900 text-white px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition shadow-xl shadow-slate-200 disabled:opacity-50">
+                  {isSubmitting ? 'Guardando...' : 'Guardar'}
+                </button>
             </div>
         </form>
     );
@@ -126,56 +193,88 @@ const AdminDashboard = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => { setLoading(true); const u = await fetchUsers(); setUsers(u); setLoading(false); };
+  const load = async () => { 
+    setLoading(true); 
+    try { 
+      const u = await fetchUsers(); 
+      setUsers(u); 
+    } catch(e) { 
+      console.error("Error cargando usuarios:", e); 
+    } finally { 
+      setLoading(false); 
+    } 
+  };
+  
   useEffect(() => { load(); }, []);
 
   const handleSave = async (data: User) => {
-    await saveUser(data);
-    setIsCreating(false); setEditingUser(null); load();
+    try {
+        await saveUser(data);
+        setIsCreating(false); 
+        setEditingUser(null); 
+        load();
+    } catch(err: any) { 
+        console.error("Error al guardar usuario:", err);
+        const msg = err.message || "Fallo desconocido al conectar con Supabase.";
+        alert(`Error al guardar: ${msg}`); 
+    }
   };
 
   const handleDelete = async (id: string) => {
-      if(confirm('¿Eliminar usuario definitivamente?')) { await deleteUser(id); load(); }
+      if(confirm('¿Eliminar usuario definitivamente?')) { 
+        try {
+          await deleteUser(id); 
+          load(); 
+        } catch(e: any) {
+          alert("Error al eliminar: " + (e.message || "Fallo desconocido"));
+        }
+      }
   };
 
   return (
     <div className="max-w-7xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-slate-800">Personal de UpFest</h1>
-          <button onClick={() => setIsCreating(true)} className="bg-slate-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-800 transition shadow-lg"><Plus size={18} /> Nuevo Usuario</button>
+      <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tighter">PERSONAL</h1>
+            <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Gestión de RRHH UpFest</p>
+          </div>
+          <button onClick={() => setIsCreating(true)} className="bg-slate-900 text-white px-6 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-800 transition shadow-xl shadow-slate-200 font-black text-xs uppercase tracking-widest"><Plus size={18} /> Nuevo Usuario</button>
       </div>
       
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-         <table className="w-full text-left">
+      <div className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-sm">
+         <table className="w-full text-left border-collapse">
             <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="p-4 text-xs font-bold text-slate-500 uppercase">Personal</th>
-                    <th className="p-4 text-xs font-bold text-slate-500 uppercase">Legajo</th>
-                    <th className="p-4 text-xs font-bold text-slate-500 uppercase">Rol</th>
-                    <th className="p-4 text-xs font-bold text-slate-500 uppercase text-right">Acciones</th>
+                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Personal</th>
+                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Legajo</th>
+                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Rol</th>
+                    <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Acciones</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                    <tr><td colSpan={4} className="p-12 text-center text-slate-400 italic">Cargando personal...</td></tr>
+                    <tr><td colSpan={4} className="p-16 text-center text-slate-400 font-bold italic">Sincronizando con la nube...</td></tr>
                 ) : users.length === 0 ? (
-                    <tr><td colSpan={4} className="p-12 text-center text-slate-400 italic">No hay usuarios registrados.</td></tr>
+                    <tr><td colSpan={4} className="p-16 text-center text-slate-400 font-bold italic">No hay usuarios registrados.</td></tr>
                 ) : users.map(u => (
                     <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-4">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden shrink-0">
-                                    {u.referenceImage ? <img src={u.referenceImage} className="w-full h-full object-cover" /> : <UserIcon size={16} className="m-auto mt-2 text-slate-300"/>}
+                        <td className="p-6">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0 shadow-sm">
+                                    {u.referenceImage ? <img src={u.referenceImage} className="w-full h-full object-cover" /> : <UserIcon size={20} className="m-auto mt-3 text-slate-300"/>}
                                 </div>
-                                <span className="font-bold text-slate-800">{u.name}</span>
+                                <div>
+                                    <span className="font-black text-slate-800 block tracking-tight">{u.name}</span>
+                                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">{u.dni}</span>
+                                </div>
                             </div>
                         </td>
-                        <td className="p-4 text-sm text-slate-600">{u.legajo || u.dni}</td>
-                        <td className="p-4"><span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">{u.role}</span></td>
-                        <td className="p-4 text-right">
-                            <div className="flex justify-end gap-3">
-                                <button onClick={() => setEditingUser(u)} className="p-1 text-slate-400 hover:text-orange-600 transition" title="Editar"><Pencil size={18}/></button>
-                                <button onClick={() => handleDelete(u.id)} className="p-1 text-slate-400 hover:text-red-600 transition" title="Eliminar"><Trash2 size={18}/></button>
+                        <td className="p-6 text-sm font-mono font-bold text-slate-500 tracking-tighter">{u.legajo || 'S/L'}</td>
+                        <td className="p-6 text-center"><span className="text-[10px] font-black bg-slate-100 text-slate-400 px-3 py-1 rounded-full border border-slate-200 uppercase tracking-tighter">{u.role}</span></td>
+                        <td className="p-6 text-right">
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setEditingUser(u)} className="p-3 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition shadow-sm border border-transparent hover:border-orange-100" title="Editar"><Pencil size={18}/></button>
+                                <button onClick={() => handleDelete(u.id)} className="p-3 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition shadow-sm border border-transparent hover:border-red-100" title="Eliminar"><Trash2 size={18}/></button>
                             </div>
                         </td>
                     </tr>
@@ -185,11 +284,14 @@ const AdminDashboard = () => {
       </div>
 
       {(isCreating || editingUser) && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 overflow-y-auto">
-              <div className="bg-white rounded-2xl p-8 w-full max-w-lg shadow-2xl my-auto animate-in fade-in zoom-in-95 duration-200">
-                  <div className="flex justify-between items-center mb-6">
-                      <h3 className="font-bold text-xl text-slate-800">{isCreating ? 'Crear Nuevo Usuario' : 'Editar Usuario'}</h3>
-                      <button onClick={() => { setIsCreating(false); setEditingUser(null); }} className="text-slate-400 hover:text-slate-600"><X/></button>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+              <div className="bg-white rounded-[40px] p-10 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex justify-between items-center mb-8">
+                      <div>
+                        <h3 className="font-black text-2xl text-slate-900 tracking-tighter">{isCreating ? 'NUEVO USUARIO' : 'EDITAR USUARIO'}</h3>
+                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Información de Perfil</p>
+                      </div>
+                      <button onClick={() => { setIsCreating(false); setEditingUser(null); }} className="p-2 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-full"><X/></button>
                   </div>
                   <UserForm initialData={editingUser} onSubmit={handleSave} onCancel={() => { setIsCreating(false); setEditingUser(null); }} />
               </div>
@@ -205,45 +307,72 @@ const LocationsDashboard = () => {
     const [isCreating, setIsCreating] = useState(false);
     const [loading, setLoading] = useState(true);
 
-    const load = async () => { setLoading(true); const l = await fetchLocations(); setLocations(l); setLoading(false); };
+    const load = async () => { 
+      setLoading(true); 
+      try { 
+        const l = await fetchLocations(); 
+        setLocations(l); 
+      } catch(e) { 
+        console.error("Error cargando salones:", e); 
+      } finally { 
+        setLoading(false); 
+      } 
+    };
+    
     useEffect(() => { load(); }, []);
 
     const handleSave = async (data: Location) => {
-        await saveLocation(data);
-        setIsCreating(false); setEditingLoc(null); load();
+        try {
+            await saveLocation(data);
+            setIsCreating(false); 
+            setEditingLoc(null); 
+            load();
+        } catch(err: any) { 
+            console.error("Error al guardar salón:", err);
+            const msg = err.message || "Fallo desconocido al conectar con Supabase.";
+            alert(`Error al guardar: ${msg}`); 
+        }
     };
 
     const handleDelete = async (id: string) => {
-        if(confirm('¿Eliminar salón definitivamente?')) { await deleteLocation(id); load(); }
+        if(confirm('¿Eliminar salón definitivamente?')) { 
+          try {
+            await deleteLocation(id); 
+            load(); 
+          } catch(e: any) {
+            alert("Error al eliminar: " + (e.message || "Fallo desconocido"));
+          }
+        }
     };
 
     return (
         <div className="max-w-7xl mx-auto p-6">
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-2xl font-bold text-slate-800">Salones y Sucursales</h1>
-                <button onClick={() => setIsCreating(true)} className="bg-slate-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-800 transition shadow-lg"><Plus size={18} /> Nuevo Salón</button>
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h1 className="text-3xl font-black text-slate-900 tracking-tighter">SALONES</h1>
+                  <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Sedes UpFest & Geocercas</p>
+                </div>
+                <button onClick={() => setIsCreating(true)} className="bg-slate-900 text-white px-6 py-3 rounded-2xl flex items-center gap-2 hover:bg-slate-800 transition shadow-xl shadow-slate-200 font-black text-xs uppercase tracking-widest"><Plus size={18} /> Nuevo Salón</button>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {loading ? (
-                    <div className="col-span-full py-12 text-center text-slate-400 italic">Cargando salones...</div>
+                    <div className="col-span-full py-20 text-center text-slate-400 font-bold italic tracking-widest uppercase text-xs">Sincronizando Sedes...</div>
                 ) : locations.length === 0 ? (
-                    <div className="col-span-full py-12 text-center text-slate-400 italic">No hay salones registrados todavía.</div>
+                    <div className="col-span-full py-20 text-center text-slate-400 font-bold italic">No hay salones registrados.</div>
                 ) : locations.map(loc => (
-                    <div key={loc.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition group">
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="p-3 bg-orange-100 text-orange-600 rounded-xl"><MapPinned size={24} /></div>
-                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => setEditingLoc(loc)} className="p-2 bg-slate-50 text-slate-400 hover:text-orange-600 rounded-lg"><Pencil size={16}/></button>
-                                <button onClick={() => handleDelete(loc.id)} className="p-2 bg-slate-50 text-slate-400 hover:text-red-600 rounded-lg"><Trash2 size={16}/></button>
-                            </div>
+                    <div key={loc.id} className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                             <button onClick={() => setEditingLoc(loc)} className="p-3 bg-white text-slate-400 hover:text-orange-600 rounded-xl shadow-lg border border-slate-50 transition-transform hover:scale-110"><Pencil size={16}/></button>
+                             <button onClick={() => handleDelete(loc.id)} className="p-3 bg-white text-slate-400 hover:text-red-600 rounded-xl shadow-lg border border-slate-50 transition-transform hover:scale-110"><Trash2 size={16}/></button>
                         </div>
-                        <h3 className="font-extrabold text-slate-800 text-lg mb-1">{loc.name}</h3>
-                        <p className="text-sm text-slate-500 mb-4">{loc.address}, {loc.city}</p>
-                        <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
-                            <span className="bg-slate-50 px-2 py-1 rounded">LAT: {loc.lat.toFixed(4)}</span>
-                            <span className="bg-slate-50 px-2 py-1 rounded">LNG: {loc.lng.toFixed(4)}</span>
-                            <span className="bg-slate-50 px-2 py-1 rounded text-orange-600">RADIO: {loc.radiusMeters}m</span>
+                        <div className="p-5 bg-orange-50 text-orange-600 rounded-[24px] w-fit mb-6 shadow-inner"><MapPinned size={32} /></div>
+                        <h3 className="font-black text-slate-900 text-2xl mb-2 tracking-tighter">{loc.name}</h3>
+                        <p className="text-sm text-slate-400 mb-6 font-bold leading-relaxed">{loc.address}, {loc.city}</p>
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-black text-slate-300">
+                            <span className="bg-slate-50 px-3 py-1.5 rounded-full tracking-tighter border border-slate-100">LAT: {loc.lat.toFixed(4)}</span>
+                            <span className="bg-slate-50 px-3 py-1.5 rounded-full tracking-tighter border border-slate-100">LNG: {loc.lng.toFixed(4)}</span>
+                            <span className="bg-orange-600 text-white px-3 py-1.5 rounded-full tracking-tighter border border-orange-700">R: {loc.radiusMeters}M</span>
                         </div>
                     </div>
                 ))}
@@ -251,10 +380,13 @@ const LocationsDashboard = () => {
 
             {(isCreating || editingLoc) && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="font-bold text-xl text-slate-800">{isCreating ? 'Añadir Salón' : 'Editar Salón'}</h3>
-                            <button onClick={() => { setIsCreating(false); setEditingLoc(null); }} className="text-slate-400 hover:text-slate-600"><X/></button>
+                    <div className="bg-white rounded-[40px] p-10 w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center mb-8">
+                            <div>
+                              <h3 className="font-black text-2xl text-slate-900 tracking-tighter">{isCreating ? 'AÑADIR SEDE' : 'EDITAR SEDE'}</h3>
+                              <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Localización & Parámetros</p>
+                            </div>
+                            <button onClick={() => { setIsCreating(false); setEditingLoc(null); }} className="p-2 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-full"><X/></button>
                         </div>
                         <LocationForm initialData={editingLoc} onSubmit={handleSave} onCancel={() => { setIsCreating(false); setEditingLoc(null); }} />
                     </div>
@@ -264,7 +396,7 @@ const LocationsDashboard = () => {
     );
 };
 
-// --- Payroll Module (Refined) ---
+// --- Payroll Module ---
 
 interface PayrollItem {
     id: string;
@@ -340,7 +472,7 @@ const PayrollDashboard = () => {
                         scheduledOut: schedule.end,
                         realOut: realOutTime,
                         diffHours: diffStr,
-                        aiDetail: "Analizando discrepancias...",
+                        aiDetail: "Analizando incidencia...",
                         isIncident: isLate || isEarly || isMissing
                     };
                     items.push(item);
@@ -382,67 +514,69 @@ const PayrollDashboard = () => {
         <div className="p-6 max-w-[1600px] mx-auto">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-2">Liquidaciones</h1>
-                    <p className="text-slate-500 mt-1 text-sm">Panel de auditoría de cumplimiento horario impulsado por IA.</p>
+                    <h1 className="text-3xl font-black text-slate-900 tracking-tighter">LIQUIDACIONES</h1>
+                    <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Auditoría horaria asistida por IA</p>
                 </div>
                 <div className="flex gap-3">
-                    <button onClick={exportToPDF} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 transition shadow-sm font-bold text-sm">
-                        <Download size={18} /> Descargar PDF
+                    <button onClick={exportToPDF} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl hover:bg-slate-50 transition shadow-sm font-black text-[10px] uppercase tracking-widest">
+                        <Download size={16} /> PDF
                     </button>
-                    <button onClick={loadPayroll} className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2 rounded-lg hover:bg-slate-800 transition shadow-lg shadow-slate-200 font-bold text-sm">
-                        <RotateCcw size={18} /> Actualizar
+                    <button onClick={loadPayroll} className="flex items-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-2xl hover:bg-slate-800 transition shadow-lg shadow-slate-200 font-black text-[10px] uppercase tracking-widest">
+                        <RotateCcw size={16} /> Refrescar
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-8 flex flex-col md:flex-row items-end gap-6">
-                <div className="grid grid-cols-2 gap-4 flex-1">
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Inicio</label>
-                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 outline-none transition" />
+            <div className="bg-white rounded-[40px] shadow-sm border border-slate-200 p-10 mb-8 flex flex-col md:flex-row items-end gap-6">
+                <div className="grid grid-cols-2 gap-6 flex-1">
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha Inicio</label>
+                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-8 focus:ring-orange-500/5 outline-none transition font-extrabold" />
                     </div>
-                    <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Fin</label>
-                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 outline-none transition" />
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha Fin</label>
+                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-8 focus:ring-orange-500/5 outline-none transition font-extrabold" />
                     </div>
                 </div>
-                <button onClick={loadPayroll} className="w-full md:w-auto bg-orange-600 text-white px-8 py-2 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-orange-700 transition shadow-lg shadow-orange-100">
-                    <Search size={18} /> Filtrar
+                <button onClick={loadPayroll} className="w-full md:w-auto bg-orange-600 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-orange-700 transition shadow-xl shadow-orange-100">
+                    <Search size={18} className="inline mr-2" /> Buscar
                 </button>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-[40px] shadow-sm border border-slate-200 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-slate-50 border-b border-slate-200">
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-12">#</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Persona</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Rol</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Hora Ingreso</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">H. Ingreso Real</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Hora Egreso</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">H. Egreso Real</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Hs</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Detalle IA</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-12">#</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Persona</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Rol</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">H. Ingreso (P)</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">H. Ingreso (R)</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">H. Egreso (P)</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">H. Egreso (R)</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Total Hs</th>
+                                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Observación IA</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {loading ? (
-                                <tr><td colSpan={9} className="p-12 text-center text-slate-400 italic">Generando análisis con IA...</td></tr>
+                                <tr><td colSpan={9} className="p-24 text-center text-slate-400 italic font-black uppercase tracking-[0.2em] text-[10px]">Analizando incidencias con UpFest AI...</td></tr>
+                            ) : payrollItems.length === 0 ? (
+                                <tr><td colSpan={9} className="p-24 text-center text-slate-400 italic font-bold">No hay registros para este período.</td></tr>
                             ) : payrollItems.map((item, idx) => (
                                 <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${item.isIncident ? 'bg-orange-50/20' : ''}`}>
-                                    <td className="p-4 text-center font-mono text-xs text-slate-400">{idx + 1}</td>
-                                    <td className="p-4 font-bold text-slate-800">{item.userName}</td>
-                                    <td className="p-4"><span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full border border-slate-200">{item.role}</span></td>
-                                    <td className="p-4 text-center text-xs font-bold text-slate-400">{item.scheduledIn}</td>
-                                    <td className={`p-4 text-center text-sm font-extrabold ${item.realIn > item.scheduledIn && item.scheduledIn !== '--:--' ? 'text-red-500' : 'text-slate-700'}`}>{item.realIn}</td>
-                                    <td className="p-4 text-center text-xs font-bold text-slate-400">{item.scheduledOut}</td>
-                                    <td className={`p-4 text-center text-sm font-extrabold ${item.realOut < item.scheduledOut && item.scheduledOut !== '--:--' ? 'text-red-500' : 'text-slate-700'}`}>{item.realOut}</td>
-                                    <td className="p-4 text-center font-mono font-bold text-slate-700">{item.diffHours}h</td>
-                                    <td className="p-4 max-w-xs">
-                                        <div className="flex items-start gap-2 italic text-xs text-slate-600">
-                                            <Sparkles size={12} className="text-orange-500 mt-1 shrink-0" />
+                                    <td className="p-6 text-center font-mono text-xs text-slate-300">{idx + 1}</td>
+                                    <td className="p-6 font-black text-slate-900 tracking-tight">{item.userName}</td>
+                                    <td className="p-6"><span className="text-[10px] font-black bg-slate-100 text-slate-400 px-3 py-1.5 rounded-full border border-slate-200 uppercase tracking-tighter">{item.role}</span></td>
+                                    <td className="p-6 text-center text-xs font-bold text-slate-300">{item.scheduledIn}</td>
+                                    <td className={`p-6 text-center text-sm font-black ${item.realIn > item.scheduledIn && item.scheduledIn !== '--:--' ? 'text-red-500' : 'text-slate-700'}`}>{item.realIn}</td>
+                                    <td className="p-6 text-center text-xs font-bold text-slate-300">{item.scheduledOut}</td>
+                                    <td className={`p-6 text-center text-sm font-black ${item.realOut < item.scheduledOut && item.scheduledOut !== '--:--' ? 'text-red-500' : 'text-slate-700'}`}>{item.realOut}</td>
+                                    <td className="p-6 text-center font-mono font-black text-slate-800 bg-slate-50/50">{item.diffHours}H</td>
+                                    <td className="p-6 max-w-xs">
+                                        <div className="flex items-start gap-2 italic text-xs text-slate-500 font-bold leading-relaxed">
+                                            <Sparkles size={14} className="text-orange-500 mt-1 shrink-0" />
                                             {item.aiDetail}
                                         </div>
                                     </td>
@@ -459,23 +593,24 @@ const PayrollDashboard = () => {
 // --- Sidebar ---
 
 const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl }: { activeTab: string, setActiveTab: (t: string) => void, currentUser: User, onLogout: () => void, logoUrl: string | null }) => (
-    <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 h-screen sticky top-0 shadow-sm">
-        <div className="p-8 border-b border-slate-50 flex flex-col items-center">
-            {logoUrl ? <img src={logoUrl} alt="Logo" className="h-14 w-auto object-contain mb-3" /> : <div className="w-12 h-12 bg-slate-900 text-white rounded-full flex items-center justify-center font-bold text-xl mb-3 shadow-lg">UP</div>}
-            <span className="font-black text-slate-900 tracking-tighter text-xl">UPFEST CONTROL</span>
+    <aside className="hidden md:flex flex-col w-72 bg-white border-r border-slate-200 h-screen sticky top-0 shadow-sm z-50">
+        <div className="p-10 border-b border-slate-50 flex flex-col items-center">
+            {logoUrl ? <img src={logoUrl} alt="Logo" className="h-16 w-auto object-contain mb-4" /> : <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mb-4 shadow-2xl">UP</div>}
+            <span className="font-black text-slate-900 tracking-tighter text-2xl">UPFEST</span>
+            <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Admin Control</span>
         </div>
-        <nav className="flex-1 p-4 space-y-1">
-            <button onClick={() => setActiveTab('clock')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition ${activeTab === 'clock' ? 'bg-orange-50 text-orange-700' : 'text-slate-500 hover:bg-slate-50'}`}><Clock size={20}/> Fichadas</button>
+        <nav className="flex-1 p-8 space-y-2">
+            <button onClick={() => setActiveTab('clock')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition ${activeTab === 'clock' ? 'bg-orange-50 text-orange-700 shadow-sm' : 'text-slate-400 hover:bg-slate-50'}`}><Clock size={20}/> Fichadas</button>
             {currentUser.role === Role.ADMIN && (
                 <>
-                    <button onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition ${activeTab === 'payroll' ? 'bg-orange-50 text-orange-700' : 'text-slate-500 hover:bg-slate-50'}`}><Wallet size={20}/> Liquidaciones</button>
-                    <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition ${activeTab === 'admin' ? 'bg-orange-50 text-orange-700' : 'text-slate-500 hover:bg-slate-50'}`}><Users size={20}/> Usuarios</button>
-                    <button onClick={() => setActiveTab('locations')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition ${activeTab === 'locations' ? 'bg-orange-50 text-orange-700' : 'text-slate-500 hover:bg-slate-50'}`}><Building size={20}/> Salones</button>
+                    <button onClick={() => setActiveTab('payroll')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition ${activeTab === 'payroll' ? 'bg-orange-50 text-orange-700 shadow-sm' : 'text-slate-400 hover:bg-slate-50'}`}><Wallet size={20}/> Liquidaciones</button>
+                    <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition ${activeTab === 'admin' ? 'bg-orange-50 text-orange-700 shadow-sm' : 'text-slate-400 hover:bg-slate-50'}`}><Users size={20}/> Personal</button>
+                    <button onClick={() => setActiveTab('locations')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition ${activeTab === 'locations' ? 'bg-orange-50 text-orange-700 shadow-sm' : 'text-slate-400 hover:bg-slate-50'}`}><Building size={20}/> Salones</button>
                 </>
             )}
         </nav>
-        <div className="p-4 border-t border-slate-50">
-            <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold text-red-500 hover:bg-red-50 transition"><LogOut size={20} /> Salir</button>
+        <div className="p-8 border-t border-slate-50">
+            <button onClick={onLogout} className="w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest text-red-400 hover:bg-red-50 transition"><LogOut size={20} /> Salir</button>
         </div>
     </aside>
 );
@@ -492,11 +627,11 @@ export default function App() {
   if (!currentUser) return <LoginView onLogin={u => { setCurrentUser(u); setActiveTab(u.role === Role.ADMIN ? 'payroll' : 'clock'); }} logoUrl={logoUrl} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex font-sans">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} currentUser={currentUser} onLogout={() => setCurrentUser(null)} logoUrl={logoUrl} />
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
-          <main className="flex-1 overflow-y-auto">
-            {activeTab === 'clock' && <div className="p-12 text-center text-slate-500 italic">Módulo de Fichada Activo para el personal.</div>}
+          <main className="flex-1 overflow-y-auto custom-scrollbar">
+            {activeTab === 'clock' && <div className="p-24 text-center"><div className="w-40 h-40 bg-slate-100 rounded-[48px] mx-auto mb-8 flex items-center justify-center text-slate-300 shadow-inner"><Clock size={56} /></div><h2 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">MÓDULO DE CONTROL</h2><p className="text-slate-400 font-black text-[10px] uppercase tracking-[0.2em]">Sincronización biométrica activa</p></div>}
             {activeTab === 'payroll' && <PayrollDashboard />}
             {activeTab === 'admin' && <AdminDashboard />}
             {activeTab === 'locations' && <LocationsDashboard />}
@@ -506,7 +641,7 @@ export default function App() {
   );
 }
 
-// Reutilizamos LoginView y Header de la versión anterior para brevedad
+// LoginView
 const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: string | null }) => {
   const [dni, setDni] = useState('');
   const [password, setPassword] = useState('');
@@ -519,25 +654,26 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
     try {
         const user = await authenticateUser(dni, password);
         if (user) onLogin(user);
-        else setError('Credenciales inválidas');
-    } catch (e) { setError('Error de conexión'); }
+        else setError('CREDENCIALES INVÁLIDAS');
+    } catch (e) { setError('ERROR DE CONEXIÓN'); }
     finally { setLoading(false); }
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 font-sans">
-      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-10 space-y-8 border border-slate-100">
+      <div className="w-full max-w-sm bg-white rounded-[48px] shadow-2xl p-14 space-y-12 border border-slate-100 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-2 bg-orange-600"></div>
         <div className="text-center">
-          {logoUrl ? <img src={logoUrl} alt="Logo" className="h-16 w-auto mx-auto mb-4" /> : <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white font-black text-2xl shadow-xl">UP</div>}
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">HOLA DE NUEVO</h2>
-          <p className="text-slate-400 font-bold text-xs uppercase tracking-widest">Panel de Control UpFest</p>
+          {logoUrl ? <img src={logoUrl} alt="Logo" className="h-20 w-auto mx-auto mb-8" /> : <div className="w-24 h-24 bg-slate-900 rounded-[32px] flex items-center justify-center mx-auto mb-8 text-white font-black text-4xl shadow-2xl">UP</div>}
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter mb-2 uppercase">ENTRAR</h2>
+          <p className="text-slate-300 font-black text-[10px] uppercase tracking-[0.3em]">UpFest Cloud V4</p>
         </div>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <input type="text" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-orange-500/10 outline-none transition font-medium" placeholder="Usuario / DNI" required />
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-orange-500/10 outline-none transition font-medium" placeholder="Contraseña" required />
-          {error && <div className="text-red-500 text-xs text-center font-bold bg-red-50 p-3 rounded-xl border border-red-100">{error}</div>}
-          <button type="submit" disabled={loading} className={`w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-4 rounded-2xl transition shadow-xl shadow-slate-200 ${loading ? 'opacity-50' : ''}`}>
-            {loading ? 'CARGANDO...' : 'ENTRAR AL PANEL'}
+        <form onSubmit={handleLogin} className="space-y-6">
+          <input type="text" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-8 py-6 bg-slate-50 border border-slate-200 rounded-[24px] focus:ring-8 focus:ring-orange-500/5 outline-none transition font-extrabold placeholder:text-slate-300 text-lg shadow-inner" placeholder="USUARIO / DNI" required />
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-8 py-6 bg-slate-50 border border-slate-200 rounded-[24px] focus:ring-8 focus:ring-orange-500/5 outline-none transition font-extrabold placeholder:text-slate-300 text-lg shadow-inner" placeholder="••••••••" required />
+          {error && <div className="text-red-500 text-[10px] text-center font-black bg-red-50 p-5 rounded-[20px] border border-red-100 tracking-[0.2em]">{error}</div>}
+          <button type="submit" disabled={loading} className={`w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-6 rounded-[24px] transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-2xl shadow-slate-200 uppercase tracking-widest text-xs ${loading ? 'opacity-50' : ''}`}>
+            {loading ? 'CARGANDO...' : 'ACCEDER'}
           </button>
         </form>
       </div>
