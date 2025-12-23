@@ -189,14 +189,13 @@ export const saveUser = async (user: User) => {
       if (uploadedUrl) referenceImageUrl = uploadedUrl;
     }
 
-    // Se eliminaron 'hourly_rate' y 'assigned_locations' porque no existen en la tabla actual
     const dbUser: any = {
       dni: user.dni,
       password: user.password,
       name: user.name,
       role: user.role,
       legajo: user.legajo,
-      dress_code: user.dress_code,
+      dress_code: user.dressCode,
       reference_image: referenceImageUrl,
       schedule: user.schedule || []
     };
@@ -271,6 +270,17 @@ export const fetchLogsByDateRange = async (startDate: Date, endDate: Date): Prom
     return data.map(mapLogFromDB);
 };
 
+export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => {
+    const { data, error } = await supabase
+        .from('logs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(1);
+    if (error || !data || data.length === 0) return null;
+    return mapLogFromDB(data[0]);
+};
+
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
     const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
@@ -297,7 +307,6 @@ export const addLog = async (entry: LogEntry) => {
     location_name: entry.locationName,
     location_status: entry.locationStatus,
     schedule_status: entry.scheduleStatus,
-    // Fix: Using correct camelCase property names from the LogEntry interface
     dress_code_status: entry.dressCodeStatus,
     identity_status: entry.identityStatus,
     photo_evidence: photoUrl, 

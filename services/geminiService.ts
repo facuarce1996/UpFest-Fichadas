@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, Schema, Part } from "@google/genai";
+import { GoogleGenAI, Type, Part } from "@google/genai";
 import { ValidationResult } from "../types";
 
 const cleanBase64 = (dataUrl: string) => {
@@ -26,7 +26,8 @@ const getBase64FromUrl = async (url: string): Promise<string> => {
   }
 };
 
-const validationSchema: Schema = {
+// Use simple object for schema as recommended by guidelines
+const validationSchema = {
   type: Type.OBJECT,
   properties: {
     identityMatch: {
@@ -55,8 +56,8 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
-    const apiKey = process.env.API_KEY;
-    const ai = new GoogleGenAI({ apiKey: apiKey! });
+    // Correct initialization as per guidelines: new GoogleGenAI({ apiKey: process.env.API_KEY })
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const parts: Part[] = [];
     let prompt = `
@@ -87,8 +88,11 @@ export const analyzeCheckIn = async (
       },
     });
 
-    return JSON.parse(response.text || "{}");
+    // Access response text using the .text property (not a method)
+    const resultText = response.text?.trim() || "{}";
+    return JSON.parse(resultText);
   } catch (error) {
+    console.error("Gemini Error (analyzeCheckIn):", error);
     return { identityMatch: false, dressCodeMatches: false, description: "Error IA", confidence: 0 };
   }
 };
@@ -104,8 +108,8 @@ export const generateIncidentExplanation = async (
   realOut: string
 ): Promise<string> => {
   try {
-    const apiKey = process.env.API_KEY;
-    const ai = new GoogleGenAI({ apiKey: apiKey! });
+    // Correct initialization as per guidelines: new GoogleGenAI({ apiKey: process.env.API_KEY })
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const prompt = `
       Como asistente de RRHH de UpFest, redacta una ÚNICA oración profesional y breve explicando la incidencia del empleado ${userName}.
@@ -121,8 +125,10 @@ export const generateIncidentExplanation = async (
       config: { temperature: 0.7 }
     });
 
+    // Access response text using the .text property (not a method)
     return response.text || "Sin detalle disponible.";
   } catch (error) {
+    console.error("Gemini Error (generateIncidentExplanation):", error);
     return "No se pudo generar el detalle con IA.";
   }
 };
