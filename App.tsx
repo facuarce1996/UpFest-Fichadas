@@ -12,7 +12,7 @@ import {
 import { analyzeCheckIn, generateIncidentExplanation } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu, Settings, ChevronRight, LayoutDashboard, ArrowLeft, Calendar, Download, Search, Filter, FileSpreadsheet, File, Wallet, AlertCircle, TrendingDown, TrendingUp, Sparkles, MapPinned, RefreshCw, UserCheck, Shirt, Monitor, Activity, Maximize2
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, Ban, Image as ImageIcon, Pencil, X, RotateCcw, Home, FileText, Users, Building, MapPin, Map, Eye, Menu, Settings, ChevronRight, LayoutDashboard, ArrowLeft, Calendar, Download, Search, Filter, FileSpreadsheet, File, Wallet, AlertCircle, TrendingDown, TrendingUp, Sparkles, MapPinned, RefreshCw, UserCheck, Shirt, Monitor, Activity, Maximize2, Laptop
 } from 'lucide-react';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
@@ -21,7 +21,7 @@ import autoTable from 'jspdf-autotable';
 
 const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => {
   const [locations, setLocations] = useState<Location[]>([]);
-  const [selectedLoc, setSelectedLoc] = useState<Location | null>(null);
+  const [deviceLocation, setDeviceLocation] = useState<Location | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,20 +48,25 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
 
+    const deviceLocId = localStorage.getItem('upfest_terminal_location_id');
+
     Promise.all([
       fetchLocations(),
       fetchLastLog(user.id),
       user.role === Role.ADMIN ? fetchLogs() : Promise.resolve([]),
       fetchLogsByDateRange(startOfDay, endOfDay)
     ]).then(([allLocs, last, logs, allTodayLogs]) => {
-      const assigned = allLocs.filter(l => user.assignedLocations?.includes(l.id));
-      setLocations(assigned);
-      if (assigned.length > 0) setSelectedLoc(assigned[0]);
+      setLocations(allLocs);
       setLastLog(last);
       setAdminLogs(logs);
       setUserTodayLogs(allTodayLogs.filter(l => l.userId === user.id));
+      
+      if (deviceLocId) {
+        const found = allLocs.find(l => l.id === deviceLocId);
+        if (found) setDeviceLocation(found);
+      }
     });
-  }, [user.id, user.assignedLocations, user.role]);
+  }, [user.id, user.role]);
 
   const startCamera = async () => {
     setCameraActive(true);
@@ -81,7 +86,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const data = canvasRef.current.toDataURL('image/jpeg');
       setPhoto(data);
       const stream = videoRef.current.srcObject as MediaStream;
-      track => track.stop();
+      stream.getTracks().forEach(track => track.stop());
       setCameraActive(false);
     }
   };
@@ -109,13 +114,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   };
 
   const handleAction = async (type: 'CHECK_IN' | 'CHECK_OUT') => {
-    if (!selectedLoc || !photo) return;
+    if (!deviceLocation || !photo) return;
     setLoading(true);
 
     try {
       const pos = await getCurrentPosition();
-      const currentDist = calculateDistance(pos.coords.latitude, pos.coords.longitude, selectedLoc.lat, selectedLoc.lng);
-      const isLocationValid = currentDist <= (selectedLoc.radiusMeters || 100);
+      const currentDist = calculateDistance(pos.coords.latitude, pos.coords.longitude, deviceLocation.lat, deviceLocation.lng);
+      const isLocationValid = currentDist <= (deviceLocation.radiusMeters || 100);
 
       const aiResult: ValidationResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
       const diffMsg = calculateDiffMessage(type);
@@ -127,8 +132,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         legajo: user.legajo,
         timestamp: new Date().toISOString(),
         type,
-        locationId: selectedLoc.id,
-        locationName: selectedLoc.name,
+        locationId: deviceLocation.id,
+        locationName: deviceLocation.name,
         locationStatus: isLocationValid ? 'VALID' : 'INVALID',
         dressCodeStatus: aiResult.dressCodeMatches ? 'PASS' : 'FAIL',
         identityStatus: aiResult.identityMatch ? 'MATCH' : 'NO_MATCH',
@@ -137,7 +142,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       };
 
       await addLog(log);
-      setLastLog(log); // Update locally for immediate UI feedback
+      setLastLog(log);
 
       setResultSummary({
         logType: type,
@@ -247,10 +252,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const hasOutToday = userTodayLogs.some(l => l.type === 'CHECK_OUT');
   const turnCompletedToday = hasInToday && hasOutToday;
 
-  const isCheckInDisabled = loading || !photo || !selectedLoc || locations.length === 0 || lastLog?.type === 'CHECK_IN' || turnCompletedToday;
-  const isCheckOutDisabled = loading || !photo || !selectedLoc || locations.length === 0 || lastLog?.type !== 'CHECK_IN';
+  const isCheckInDisabled = loading || !photo || !deviceLocation || lastLog?.type === 'CHECK_IN' || turnCompletedToday;
+  const isCheckOutDisabled = loading || !photo || !deviceLocation || lastLog?.type !== 'CHECK_IN';
 
-  // Branch for Admin View
+  // Branch for Admin View (Monitor)
   if (user.role === Role.ADMIN) {
     return (
       <div className="max-w-7xl mx-auto p-6 md:p-12 space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -357,116 +362,127 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     );
   }
 
-  // Branch for regular user
+  // Branch for regular user (Kiosk Mode)
   return (
     <div className="max-w-4xl mx-auto p-6 md:p-12 space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="max-w-xl mx-auto w-full">
-        <div className="bg-white rounded-[40px] p-10 border border-slate-200 shadow-xl shadow-slate-200/50">
-          <div className="flex items-center gap-6 mb-10">
-            <div className="w-20 h-20 rounded-3xl bg-slate-900 flex items-center justify-center text-white shadow-2xl shadow-slate-900/20 overflow-hidden border-4 border-white shrink-0">
-              {user.referenceImage ? <img src={user.referenceImage} className="w-full h-full object-cover" /> : <UserIcon size={32} />}
+        {!deviceLocation ? (
+          <div className="bg-white rounded-[40px] p-12 border border-orange-200 shadow-xl text-center space-y-6">
+            <div className="w-20 h-20 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto">
+              <Laptop size={32} />
             </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">{user.name}</h2>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] font-black bg-orange-100 text-orange-700 px-3 py-1 rounded-full uppercase tracking-widest">DNI: {user.dni}</span>
-                <span className="text-[10px] font-black bg-slate-100 text-slate-400 px-3 py-1 rounded-full uppercase tracking-widest">{user.role}</span>
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">TERMINAL NO CONFIGURADA</h3>
+            <p className="text-slate-500 font-bold leading-relaxed">
+              Este dispositivo aún no ha sido asignado a un Salón de UpFest.<br/>
+              Un administrador debe configurar esta terminal desde el panel de Sedes.
+            </p>
+            <button onClick={onLogout} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Cerrar Sesión</button>
+          </div>
+        ) : (
+          <div className="bg-white rounded-[40px] p-10 border border-slate-200 shadow-xl shadow-slate-200/50">
+            <div className="flex items-center justify-between mb-8 pb-8 border-b border-slate-100">
+              <div className="flex items-center gap-6">
+                <div className="w-20 h-20 rounded-3xl bg-slate-900 flex items-center justify-center text-white shadow-2xl shadow-slate-900/20 overflow-hidden border-4 border-white shrink-0">
+                  {user.referenceImage ? <img src={user.referenceImage} className="w-full h-full object-cover" /> : <UserIcon size={32} />}
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">{user.name}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] font-black bg-orange-100 text-orange-700 px-3 py-1 rounded-full uppercase tracking-widest">DNI: {user.dni}</span>
+                    <span className="text-[10px] font-black bg-slate-100 text-slate-400 px-3 py-1 rounded-full uppercase tracking-widest">{user.role}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right hidden sm:block">
+                <span className="block text-[8px] font-black text-slate-400 uppercase tracking-widest">Ubicación Terminal</span>
+                <div className="flex items-center gap-1.5 text-orange-600 font-black text-xs uppercase">
+                  <MapPinned size={14} />
+                  {deviceLocation.name}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-slate-900">
+                    <span className="block text-[8px] font-black text-slate-600 uppercase tracking-widest">Inicio Hoy</span>
+                    <span className="text-xs font-black">{todaySchedule?.start || '--:--'}</span>
+                 </div>
+                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-slate-900">
+                    <span className="block text-[8px] font-black text-slate-600 uppercase tracking-widest">Fin Hoy</span>
+                    <span className="text-xs font-black">{todaySchedule?.end || '--:--'}</span>
+                 </div>
+              </div>
+
+              <div className="relative aspect-square rounded-[32px] overflow-hidden bg-slate-900 shadow-inner group">
+                {!cameraActive && !photo && (
+                  <button onClick={startCamera} className="absolute inset-0 flex flex-col items-center justify-center text-white gap-3 hover:bg-slate-800 transition">
+                    <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
+                      <Camera size={28} />
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Activar Cámara</span>
+                  </button>
+                )}
+                
+                {cameraActive && (
+                  <>
+                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
+                    <button onClick={capturePhoto} className="absolute bottom-8 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full bg-white border-8 border-white/30 shadow-2xl active:scale-95 transition" />
+                  </>
+                )}
+
+                {photo && (
+                  <>
+                    <img src={photo} className="w-full h-full object-cover" />
+                    <button onClick={() => setPhoto(null)} className="absolute top-4 right-4 p-3 bg-white/20 backdrop-blur-md text-white rounded-2xl hover:bg-white/40 transition">
+                      <RotateCcw size={20} />
+                    </button>
+                  </>
+                )}
+                <canvas ref={canvasRef} className="hidden" />
+              </div>
+
+              <div className="space-y-4">
+                 {turnCompletedToday && (
+                    <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 space-y-3">
+                       <div className="flex items-center gap-3">
+                          <CheckCircle className="text-emerald-500" size={24} />
+                          <h4 className="font-black text-emerald-800 text-sm tracking-tight uppercase">TURNO DE HOY COMPLETADO</h4>
+                       </div>
+                       <p className="text-[10px] font-bold text-emerald-600 leading-relaxed uppercase tracking-widest">Ya has registrado tus fichadas de entrada y salida para esta jornada.</p>
+                    </div>
+                 )}
+                 {!turnCompletedToday && lastLog?.type === 'CHECK_IN' && (
+                    <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex items-center gap-3">
+                       <AlertTriangle className="text-orange-500" size={16} />
+                       <span className="text-[10px] font-bold text-orange-700">Tienes un ingreso activo en {lastLog.locationName}. Debes marcar salida antes de otro ingreso.</span>
+                    </div>
+                 )}
+              </div>
+
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => handleAction('CHECK_IN')}
+                  disabled={isCheckInDisabled}
+                  className="flex-1 bg-slate-900 text-white h-20 rounded-[28px] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-slate-900/20 disabled:opacity-20 flex flex-col items-center justify-center transition-all hover:translate-y-[-2px]"
+                >
+                  {loading ? <RefreshCw className="animate-spin" size={20}/> : <><Clock size={20} className="mb-1"/> Ingreso</>}
+                  {lastLog?.type === 'CHECK_IN' && <span className="text-[8px] opacity-60">Activo</span>}
+                </button>
+                <button 
+                  onClick={() => handleAction('CHECK_OUT')}
+                  disabled={isCheckOutDisabled}
+                  className="flex-1 bg-white border-2 border-slate-100 text-slate-900 h-20 rounded-[28px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-200/50 disabled:opacity-20 flex flex-col items-center justify-center transition-all hover:translate-y-[-2px]"
+                >
+                  {loading ? <RefreshCw className="animate-spin" size={20}/> : <><LogOut size={20} className="mb-1"/> Egreso</>}
+                </button>
               </div>
             </div>
           </div>
-
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-slate-900">
-                  <span className="block text-[8px] font-black text-slate-600 uppercase tracking-widest">Inicio Hoy</span>
-                  <span className="text-xs font-black">{todaySchedule?.start || '--:--'}</span>
-               </div>
-               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-slate-900">
-                  <span className="block text-[8px] font-black text-slate-600 uppercase tracking-widest">Fin Hoy</span>
-                  <span className="text-xs font-black">{todaySchedule?.end || '--:--'}</span>
-               </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-900 uppercase tracking-widest ml-1">Salón de Servicio (Asignados)</label>
-              <select 
-                value={selectedLoc?.id} 
-                onChange={e => setSelectedLoc(locations.find(l => l.id === e.target.value) || null)}
-                className="w-full px-6 py-4 bg-white border border-slate-200 rounded-2xl focus:ring-8 focus:ring-orange-500/5 outline-none font-extrabold appearance-none text-slate-900"
-              >
-                {locations.length === 0 && <option>No tienes salones asignados</option>}
-                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
-            </div>
-
-            <div className="relative aspect-square rounded-[32px] overflow-hidden bg-slate-900 shadow-inner group">
-              {!cameraActive && !photo && (
-                <button onClick={startCamera} className="absolute inset-0 flex flex-col items-center justify-center text-white gap-3 hover:bg-slate-800 transition">
-                  <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20">
-                    <Camera size={28} />
-                  </div>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Activar Cámara</span>
-                </button>
-              )}
-              
-              {cameraActive && (
-                <>
-                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
-                  <button onClick={capturePhoto} className="absolute bottom-8 left-1/2 -translate-x-1/2 w-16 h-16 rounded-full bg-white border-8 border-white/30 shadow-2xl active:scale-95 transition" />
-                </>
-              )}
-
-              {photo && (
-                <>
-                  <img src={photo} className="w-full h-full object-cover" />
-                  <button onClick={() => setPhoto(null)} className="absolute top-4 right-4 p-3 bg-white/20 backdrop-blur-md text-white rounded-2xl hover:bg-white/40 transition">
-                    <RotateCcw size={20} />
-                  </button>
-                </>
-              )}
-              <canvas ref={canvasRef} className="hidden" />
-            </div>
-
-            <div className="space-y-4">
-               {turnCompletedToday && (
-                  <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 space-y-3">
-                     <div className="flex items-center gap-3">
-                        <CheckCircle className="text-emerald-500" size={24} />
-                        <h4 className="font-black text-emerald-800 text-sm tracking-tight uppercase">TURNO DE HOY COMPLETADO</h4>
-                     </div>
-                     <p className="text-[10px] font-bold text-emerald-600 leading-relaxed uppercase tracking-widest">Ya has registrado tus fichadas de entrada y salida para esta jornada.</p>
-                  </div>
-               )}
-               {!turnCompletedToday && lastLog?.type === 'CHECK_IN' && (
-                  <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex items-center gap-3">
-                     <AlertTriangle className="text-orange-500" size={16} />
-                     <span className="text-[10px] font-bold text-orange-700">Tienes un ingreso activo. Debes marcar salida antes de otro ingreso.</span>
-                  </div>
-               )}
-            </div>
-
-            <div className="flex gap-4">
-              <button 
-                onClick={() => handleAction('CHECK_IN')}
-                disabled={isCheckInDisabled}
-                className="flex-1 bg-slate-900 text-white h-20 rounded-[28px] font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-slate-900/20 disabled:opacity-20 flex flex-col items-center justify-center transition-all hover:translate-y-[-2px]"
-              >
-                {loading ? <RefreshCw className="animate-spin" size={20}/> : <><Clock size={20} className="mb-1"/> Ingreso</>}
-                {lastLog?.type === 'CHECK_IN' && <span className="text-[8px] opacity-60">Activo</span>}
-              </button>
-              <button 
-                onClick={() => handleAction('CHECK_OUT')}
-                disabled={isCheckOutDisabled}
-                className="flex-1 bg-white border-2 border-slate-100 text-slate-900 h-20 rounded-[28px] font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-slate-200/50 disabled:opacity-20 flex flex-col items-center justify-center transition-all hover:translate-y-[-2px]"
-              >
-                {loading ? <RefreshCw className="animate-spin" size={20}/> : <><LogOut size={20} className="mb-1"/> Egreso</>}
-              </button>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
       
-      <p className="text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">UpFest Control Biométrico v4.2</p>
+      <p className="text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">UpFest Control Biométrico v4.5 - Kiosk Mode</p>
     </div>
   );
 };
@@ -801,6 +817,11 @@ const LocationsDashboard = () => {
     const [editingLoc, setEditingLoc] = useState<Location | null>(null);
     const [isCreating, setIsCreating] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [currentDeviceLocId, setCurrentDeviceLocId] = useState<string | null>(null);
+
+    useEffect(() => {
+      setCurrentDeviceLocId(localStorage.getItem('upfest_terminal_location_id'));
+    }, []);
 
     const load = async () => { 
       setLoading(true); 
@@ -840,6 +861,12 @@ const LocationsDashboard = () => {
         }
     };
 
+    const handleSetTerminalLocation = (locId: string) => {
+      localStorage.setItem('upfest_terminal_location_id', locId);
+      setCurrentDeviceLocId(locId);
+      alert("Terminal vinculada correctamente a esta sede.");
+    };
+
     return (
         <div className="max-w-7xl mx-auto p-6">
             <div className="flex justify-between items-center mb-8">
@@ -856,18 +883,33 @@ const LocationsDashboard = () => {
                 ) : locations.length === 0 ? (
                     <div className="col-span-full py-20 text-center text-slate-400 font-bold italic text-slate-900">No hay salones registrados.</div>
                 ) : locations.map(loc => (
-                    <div key={loc.id} className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                             <button onClick={() => setEditingLoc(loc)} className="p-3 bg-white text-slate-400 hover:text-orange-600 rounded-xl shadow-lg border border-slate-50 transition-transform hover:scale-110"><Pencil size={16}/></button>
-                             <button onClick={() => handleDelete(loc.id)} className="p-3 bg-white text-slate-400 hover:text-red-600 rounded-xl shadow-lg border border-slate-50 transition-transform hover:scale-110"><Trash2 size={16}/></button>
-                        </div>
+                    <div key={loc.id} className={`bg-white rounded-[32px] p-8 border ${currentDeviceLocId === loc.id ? 'border-orange-500 ring-4 ring-orange-500/10' : 'border-slate-200'} shadow-sm hover:shadow-xl transition-all group relative overflow-hidden flex flex-col`}>
+                        {currentDeviceLocId === loc.id && (
+                          <div className="absolute top-4 right-4 bg-orange-500 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg">
+                            <Laptop size={10}/> Terminal Activa
+                          </div>
+                        )}
                         <div className="p-5 bg-orange-50 text-orange-600 rounded-[24px] w-fit mb-6 shadow-inner"><MapPinned size={32} /></div>
                         <h3 className="font-black text-slate-900 text-2xl mb-2 tracking-tighter">{loc.name}</h3>
                         <p className="text-sm text-slate-900 mb-6 font-bold leading-relaxed">{loc.address}, {loc.city}</p>
-                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-black text-slate-300">
+                        
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-black text-slate-300 mb-8">
                             <span className="bg-slate-50 px-3 py-1.5 rounded-full tracking-tighter border border-slate-100 text-slate-900">LAT: {loc.lat.toFixed(4)}</span>
                             <span className="bg-slate-50 px-3 py-1.5 rounded-full tracking-tighter border border-slate-100 text-slate-900">LNG: {loc.lng.toFixed(4)}</span>
                             <span className="bg-orange-600 text-white px-3 py-1.5 rounded-full tracking-tighter border border-orange-700">R: {loc.radiusMeters}M</span>
+                        </div>
+
+                        <div className="mt-auto pt-6 border-t border-slate-50 flex gap-3">
+                           {currentDeviceLocId !== loc.id && (
+                              <button 
+                                onClick={() => handleSetTerminalLocation(loc.id)}
+                                className="flex-1 bg-slate-900 text-white px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition shadow-lg"
+                              >
+                                Vincular Dispositivo
+                              </button>
+                           )}
+                           <button onClick={() => setEditingLoc(loc)} className="p-3 bg-slate-100 text-slate-500 hover:text-orange-600 rounded-xl transition-transform hover:scale-105" title="Editar"><Pencil size={16}/></button>
+                           <button onClick={() => handleDelete(loc.id)} className="p-3 bg-slate-100 text-slate-500 hover:text-red-600 rounded-xl transition-transform hover:scale-105" title="Eliminar"><Trash2 size={16}/></button>
                         </div>
                     </div>
                 ))}
