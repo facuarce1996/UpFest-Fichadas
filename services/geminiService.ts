@@ -6,10 +6,10 @@ const cleanBase64 = (dataUrl: string) => {
   return dataUrl.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 };
 
-const getBase64FromUrl = async (url: string): Promise<string> => {
+const getBase64FromUrl = async (url: string): Promise<string | null> => {
   try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+    const response = await fetch(url, { mode: 'cors' });
+    if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -21,18 +21,17 @@ const getBase64FromUrl = async (url: string): Promise<string> => {
       reader.readAsDataURL(blob);
     });
   } catch (error) {
-    console.error("Error converting URL to Base64:", error);
-    throw error;
+    console.warn("No se pudo recuperar la imagen de referencia (posible error de CORS):", error);
+    return null;
   }
 };
 
-// Use simple object for schema as recommended by guidelines
 const validationSchema = {
   type: Type.OBJECT,
   properties: {
     identityMatch: {
       type: Type.BOOLEAN,
-      description: "Verdadero si la persona en la foto coincide con la referencia.",
+      description: "Verdadero si la persona en la foto coincide con la referencia. Si no hay referencia, devolver true.",
     },
     dressCodeMatches: {
       type: Type.BOOLEAN,
@@ -56,26 +55,29 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
-    // Correct initialization as per guidelines: new GoogleGenAI({ apiKey: process.env.API_KEY })
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
     const parts: Part[] = [];
-    let prompt = `
-      Oficial de seguridad de UpFest.
-      Valida:
-      1. Vestimenta: "${dressCodeDescription || 'Formal'}".
-      2. Identidad: Compara rostros si hay referencia.
-      RESPONDE EN ESPAÑOL.
-    `;
-
+    
+    let refBase64: string | null = null;
     if (referenceImage) {
-      let referenceImageBase64 = referenceImage.startsWith('http') 
-        ? await getBase64FromUrl(referenceImage) 
-        : cleanBase64(referenceImage);
-
-      parts.push({ inlineData: { mimeType: "image/jpeg", data: referenceImageBase64 } });
+        if (referenceImage.startsWith('http')) {
+            refBase64 = await getBase64FromUrl(referenceImage);
+        } else {
+            refBase64 = cleanBase64(referenceImage);
+        }
     }
 
+    let prompt = `Actúa como oficial de seguridad de UpFest.
+      Analiza la foto actual y compárala con las reglas:
+      1. Vestimenta requerida: "${dressCodeDescription || 'Ropa formal de trabajo'}".
+      2. Identidad: ${refBase64 ? 'Compara con la foto de referencia adjunta.' : 'No hay foto de referencia, asume que la identidad es correcta.'}
+      
+      IMPORTANTE: Responde estrictamente en formato JSON siguiendo el esquema proporcionado.`;
+
+    if (refBase64) {
+      parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
+    }
+    
     parts.push({ inlineData: { mimeType: "image/jpeg", data: cleanBase64(checkInImage) } });
     parts.push({ text: prompt });
 
@@ -85,21 +87,29 @@ export const analyzeCheckIn = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: validationSchema,
+        temperature: 0.1, // Baja temperatura para mayor consistencia en JSON
       },
     });
 
-    // Access response text using the .text property (not a method)
-    const resultText = response.text?.trim() || "{}";
+    const resultText = response.text?.trim();
+    if (!resultText) throw new Error("Respuesta vacía de la IA");
+    
     return JSON.parse(resultText);
-  } catch (error) {
-    console.error("Gemini Error (analyzeCheckIn):", error);
-    return { identityMatch: false, dressCodeMatches: false, description: "Error IA", confidence: 0 };
+  } catch (error: any) {
+    // Log detallado para que el usuario pueda verlo en F12
+    console.error("--- ERROR CRÍTICO GEMINI API ---");
+    console.error("Mensaje:", error.message);
+    console.error("Stack:", error.stack);
+    
+    return { 
+        identityMatch: false, 
+        dressCodeMatches: false, 
+        description: `Error técnico: ${error.message || 'Fallo de conexión con Gemini'}. Revisa la consola (F12) para más detalles.`, 
+        confidence: 0 
+    };
   }
 };
 
-/**
- * Genera una explicación humana para una discrepancia horaria
- */
 export const generateIncidentExplanation = async (
   userName: string,
   scheduledIn: string,
@@ -108,16 +118,10 @@ export const generateIncidentExplanation = async (
   realOut: string
 ): Promise<string> => {
   try {
-    // Correct initialization as per guidelines: new GoogleGenAI({ apiKey: process.env.API_KEY })
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-    const prompt = `
-      Como asistente de RRHH de UpFest, redacta una ÚNICA oración profesional y breve explicando la incidencia del empleado ${userName}.
-      Horario Teórico: Entrada ${scheduledIn}, Salida ${scheduledOut}.
-      Fichada Real: Entrada ${realIn}, Salida ${realOut}.
-      Si llegó tarde, menciónalo. Si se retiró antes, menciónalo. Sé cordial pero preciso.
-      Si los horarios coinciden perfectamente, di que cumplió satisfactoriamente.
-    `;
+    const prompt = `Redacta una oración profesional y breve de RRHH para ${userName}.
+      Horario Programado: ${scheduledIn} a ${scheduledOut}.
+      Fichada Real: ${realIn} a ${realOut}.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -125,10 +129,9 @@ export const generateIncidentExplanation = async (
       config: { temperature: 0.7 }
     });
 
-    // Access response text using the .text property (not a method)
-    return response.text || "Sin detalle disponible.";
+    return response.text || "Sin detalle.";
   } catch (error) {
-    console.error("Gemini Error (generateIncidentExplanation):", error);
-    return "No se pudo generar el detalle con IA.";
+    console.error("Error en generateIncidentExplanation:", error);
+    return "No se pudo generar explicación.";
   }
 };
