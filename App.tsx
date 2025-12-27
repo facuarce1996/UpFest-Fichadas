@@ -353,7 +353,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             onClick={() => setZoomedImage(null)}
           >
              <button className="absolute top-4 right-4 md:top-8 md:right-8 text-white hover:scale-110 transition">
-                <X size={32} md={48} />
+                <X className="w-8 h-8 md:w-12 md:h-12" />
              </button>
              <img src={zoomedImage} className="max-w-full max-h-full rounded-2xl md:rounded-[40px] shadow-2xl border-2 md:border-4 border-white animate-in zoom-in-95 duration-300" />
           </div>
@@ -482,7 +482,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         )}
       </div>
       
-      <p className="text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">UpFest Control Biométrico v4.6 - Mobile Optimized</p>
+      <p className="text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">UpFest Control Biométrico v4.7 - Kiosk Mode</p>
     </div>
   );
 };
@@ -891,7 +891,9 @@ const LocationsDashboard = () => {
                             <Laptop size={10}/> Terminal Activa
                           </div>
                         )}
-                        <div className="p-4 md:p-5 bg-orange-50 text-orange-600 rounded-2xl md:rounded-[24px] w-fit mb-4 md:mb-6 shadow-inner"><MapPinned size={28} md={32} /></div>
+                        <div className="p-4 md:p-5 bg-orange-50 text-orange-600 rounded-2xl md:rounded-[24px] w-fit mb-4 md:mb-6 shadow-inner">
+                          <MapPinned className="w-7 h-7 md:w-8 md:h-8" />
+                        </div>
                         <h3 className="font-black text-slate-900 text-xl md:text-2xl mb-2 tracking-tighter">{loc.name}</h3>
                         <p className="text-xs md:text-sm text-slate-500 mb-6 font-bold leading-relaxed line-clamp-2">{loc.address}, {loc.city}</p>
                         
@@ -1265,7 +1267,7 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-6 bg-slate-50 font-sans">
-      <div className="w-full max-w-sm bg-white rounded-[40px] md:rounded-[48px] shadow-2xl p-10 md:p-14 space-y-10 md:space-y-12 border border-slate-100 relative overflow-hidden">
+      <div className="w-full max-sm:px-4 max-w-sm bg-white rounded-[40px] md:rounded-[48px] shadow-2xl p-10 md:p-14 space-y-10 md:space-y-12 border border-slate-100 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-orange-600"></div>
         <div className="text-center">
           {logoUrl ? <img src={logoUrl} alt="Logo" className="h-16 md:h-20 w-auto mx-auto mb-6 md:mb-8" /> : <div className="w-20 h-20 md:w-24 md:h-24 bg-slate-900 rounded-[28px] md:rounded-[32px] flex items-center justify-center mx-auto mb-6 md:mb-8 text-white font-black text-3xl md:text-4xl shadow-2xl">UP</div>}
