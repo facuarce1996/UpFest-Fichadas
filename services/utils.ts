@@ -2,6 +2,32 @@
 import { Location, User, LogEntry, Role, WorkSchedule, Incident } from "../types";
 import { supabase } from "./supabaseClient";
 
+// --- Helpers para persistencia virtual en ai_feedback ---
+
+const encodeOverrides = (feedback: string, start?: string | null, end?: string | null): string => {
+  const cleanFeedback = feedback.split(' |||')[0]; // Limpiar overrides anteriores
+  if (!start && !end) return cleanFeedback;
+  return `${cleanFeedback} |||SCH_START:${start || ''}|SCH_END:${end || ''}|||`;
+};
+
+const decodeOverrides = (combinedText: string | null): { feedback: string, start?: string, end?: string } => {
+  if (!combinedText) return { feedback: '' };
+  const parts = combinedText.split(' |||');
+  const feedback = parts[0];
+  const overridePart = parts[1];
+
+  if (!overridePart) return { feedback };
+
+  const startMatch = overridePart.match(/SCH_START:([^|]*)/);
+  const endMatch = overridePart.match(/SCH_END:([^|]*)/);
+
+  return {
+    feedback,
+    start: startMatch ? startMatch[1] : undefined,
+    end: endMatch ? endMatch[1] : undefined
+  };
+};
+
 // --- Time & Schedule Helpers ---
 
 export const isWithinSchedule = (schedules: WorkSchedule[]): boolean => {
@@ -154,22 +180,27 @@ const mapLocationFromDB = (l: any): Location => ({
   radiusMeters: l.radius_meters
 });
 
-const mapLogFromDB = (l: any): LogEntry => ({
-  id: String(l.id),
-  userId: l.user_id,
-  userName: l.user_name,
-  legajo: l.legajo || '',
-  timestamp: l.timestamp,
-  type: l.type,
-  locationId: l.location_id,
-  locationName: l.location_name,
-  locationStatus: l.location_status,
-  scheduleStatus: l.schedule_status,
-  dressCodeStatus: l.dress_code_status,
-  identityStatus: l.identity_status,
-  photoEvidence: l.photo_evidence,
-  aiFeedback: l.ai_feedback || ''
-});
+const mapLogFromDB = (l: any): LogEntry => {
+  const decoded = decodeOverrides(l.ai_feedback);
+  return {
+    id: String(l.id),
+    userId: l.user_id,
+    userName: l.user_name,
+    legajo: l.legajo || '',
+    timestamp: l.timestamp,
+    type: l.type,
+    locationId: l.location_id,
+    locationName: l.location_name,
+    locationStatus: l.location_status,
+    scheduleStatus: l.schedule_status,
+    dressCodeStatus: l.dress_code_status,
+    identityStatus: l.identity_status,
+    photoEvidence: l.photo_evidence,
+    aiFeedback: decoded.feedback,
+    scheduledStartOverride: decoded.start,
+    scheduledEndOverride: decoded.end
+  };
+};
 
 // --- DATA OPERATIONS ---
 
@@ -281,6 +312,41 @@ export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => 
     return mapLogFromDB(data[0]);
 };
 
+export const updateLog = async (logId: string, updates: any) => {
+  // Primero obtenemos el log actual para no sobreescribir el feedback AI
+  const { data: currentLog, error: fetchError } = await supabase
+    .from('logs')
+    .select('ai_feedback')
+    .eq('id', logId)
+    .single();
+    
+  if (fetchError) throw new Error(fetchError.message);
+
+  const dbUpdates: any = {};
+  if (updates.timestamp) dbUpdates.timestamp = updates.timestamp;
+
+  // Si hay cambios en los horarios teóricos, los codificamos en ai_feedback
+  if (updates.scheduledStartOverride !== undefined || updates.scheduledEndOverride !== undefined) {
+    const currentDecoded = decodeOverrides(currentLog.ai_feedback);
+    const newStart = updates.scheduledStartOverride !== undefined ? updates.scheduledStartOverride : currentDecoded.start;
+    const newEnd = updates.scheduledEndOverride !== undefined ? updates.scheduledEndOverride : currentDecoded.end;
+    
+    dbUpdates.ai_feedback = encodeOverrides(currentDecoded.feedback, newStart, newEnd);
+  } else if (updates.aiFeedback) {
+     // Si solo se actualiza el feedback
+     const currentDecoded = decodeOverrides(currentLog.ai_feedback);
+     dbUpdates.ai_feedback = encodeOverrides(updates.aiFeedback, currentDecoded.start, currentDecoded.end);
+  }
+  
+  const { error } = await supabase.from('logs').update(dbUpdates).eq('id', logId);
+  if (error) throw new Error(error.message);
+};
+
+export const deleteLog = async (logId: string) => {
+  const { error } = await supabase.from('logs').delete().eq('id', logId);
+  if (error) throw new Error(error.message);
+};
+
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
     const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
@@ -310,7 +376,7 @@ export const addLog = async (entry: LogEntry) => {
     dress_code_status: entry.dressCodeStatus,
     identity_status: entry.identityStatus,
     photo_evidence: photoUrl, 
-    ai_feedback: entry.aiFeedback
+    ai_feedback: encodeOverrides(entry.aiFeedback, entry.scheduledStartOverride, entry.scheduledEndOverride)
   };
   const { error } = await supabase.from('logs').insert(dbLog);
   if (error) throw new Error(error.message);

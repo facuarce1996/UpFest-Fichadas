@@ -7,7 +7,7 @@ import {
   getCurrentPosition, calculateDistance, isWithinSchedule, getScheduleDelayInfo,
   fetchUsers, fetchLocations, fetchLogs, fetchTodayLogs, fetchLogsByDateRange, addLog, saveUser, deleteUser,
   authenticateUser, saveLocation, deleteLocation, fetchCompanyLogo, saveCompanyLogo,
-  fetchIncidents, saveIncident, deleteIncident, fetchLastLog
+  fetchIncidents, saveIncident, deleteIncident, fetchLastLog, updateLog, deleteLog
 } from './services/utils';
 import { analyzeCheckIn, generateIncidentExplanation } from './services/geminiService';
 import { 
@@ -16,6 +16,18 @@ import {
 } from 'lucide-react';
 import { jsPDF } from "jspdf";
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+
+// --- Helpers ---
+
+const formatToHHMM = (isoString: string | undefined): string => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '';
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+};
 
 // --- Clock Module (User Side) ---
 
@@ -36,6 +48,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     dist: number;
     diffMessage: string;
   } | null>(null);
+  const [showFinalSuccess, setShowFinalSuccess] = useState(false);
+  const [countdown, setCountdown] = useState(5);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -67,6 +81,16 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       }
     });
   }, [user.id, user.role]);
+
+  useEffect(() => {
+    let timer: any;
+    if (showFinalSuccess && countdown > 0) {
+      timer = setInterval(() => setCountdown(prev => prev - 1), 1000);
+    } else if (showFinalSuccess && countdown === 0) {
+      onLogout();
+    }
+    return () => clearInterval(timer);
+  }, [showFinalSuccess, countdown, onLogout]);
 
   const startCamera = async () => {
     setCameraActive(true);
@@ -159,6 +183,29 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     }
   };
 
+  if (showFinalSuccess) {
+    return (
+      <div className="max-w-xl mx-auto p-4 md:p-12 animate-in zoom-in duration-500 flex items-center justify-center min-h-[60vh]">
+        <div className="bg-white rounded-[40px] p-12 border border-slate-200 shadow-2xl text-center space-y-8 w-full">
+          <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto animate-bounce">
+            <CheckCircle size={48} />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">FICHADA REGISTRADA</h2>
+            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Cargada correctamente en el sistema UpFest</p>
+          </div>
+          <div className="pt-4 border-t border-slate-100">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Cerrando sesión en {countdown} segundos...</p>
+            <div className="w-full bg-slate-100 h-1 mt-4 rounded-full overflow-hidden">
+               <div className="bg-emerald-500 h-full transition-all duration-1000" style={{ width: `${(countdown / 5) * 100}%` }}></div>
+            </div>
+          </div>
+          <button onClick={onLogout} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition shadow-xl">Cerrar Ahora</button>
+        </div>
+      </div>
+    );
+  }
+
   if (resultSummary) {
     const hasIssues = !resultSummary.isLocationValid || !resultSummary.aiResult.identityMatch || !resultSummary.aiResult.dressCodeMatches;
 
@@ -210,7 +257,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   </span>
                 </div>
               </div>
-              {resultSummary.aiResult.dressCodeMatches ? <CheckCircle size={18} className="text-emerald-600" /> : <AlertTriangle size={18} className="text-orange-600" />}
+              {resultSummary.aiResult.identityMatch ? <CheckCircle size={18} className="text-emerald-600" /> : <AlertTriangle size={18} className="text-orange-600" />}
             </div>
 
             {resultSummary.diffMessage && (
@@ -231,7 +278,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
           <div className="flex flex-col gap-4">
             <button 
-              onClick={onLogout}
+              onClick={() => setShowFinalSuccess(true)}
               className={`w-full h-14 md:h-16 rounded-xl md:rounded-2xl font-black text-xs uppercase tracking-widest transition shadow-xl ${hasIssues ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
             >
               {hasIssues ? 'Confirmar con Incidencia y Salir' : 'Confirmar y Finalizar'}
@@ -892,7 +939,7 @@ const LocationsDashboard = () => {
                           </div>
                         )}
                         <div className="p-4 md:p-5 bg-orange-50 text-orange-600 rounded-2xl md:rounded-[24px] w-fit mb-4 md:mb-6 shadow-inner">
-                          <MapPinned className="w-7 h-7 md:w-8 md:h-8" />
+                          <MapPinned size={28} />
                         </div>
                         <h3 className="font-black text-slate-900 text-xl md:text-2xl mb-2 tracking-tighter">{loc.name}</h3>
                         <p className="text-xs md:text-sm text-slate-500 mb-6 font-bold leading-relaxed line-clamp-2">{loc.address}, {loc.city}</p>
@@ -941,16 +988,26 @@ const LocationsDashboard = () => {
 
 interface PayrollItem {
     id: string;
-    dateDisplay: string;
+    dayName: string;
+    dateFormatted: string;
     userName: string;
+    userDni: string;
     role: string;
     scheduledIn: string;
     realIn: string;
     scheduledOut: string;
     realOut: string;
+    realInISO?: string;
+    realOutISO?: string;
     diffHours: string;
-    aiDetail: string;
-    isIncident: boolean;
+    isLate: boolean;
+    isEarlyExit: boolean;
+    isDressOk: boolean;
+    isLocationOk: boolean;
+    // Database linkage
+    inLogId?: string;
+    outLogId?: string;
+    rawDate: string; // ISO date YYYY-MM-DD
 }
 
 const PayrollDashboard = () => {
@@ -958,6 +1015,14 @@ const PayrollDashboard = () => {
     const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [loading, setLoading] = useState(false);
+    
+    // UI state for editing
+    const [editingItem, setEditingItem] = useState<PayrollItem | null>(null);
+    const [editRealInTime, setEditRealInTime] = useState('');
+    const [editRealOutTime, setEditRealOutTime] = useState('');
+    const [editSchInTime, setEditSchInTime] = useState('');
+    const [editSchOutTime, setEditSchOutTime] = useState('');
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
 
     const loadPayroll = async () => {
         setLoading(true);
@@ -991,14 +1056,15 @@ const PayrollDashboard = () => {
                     const dateObj = new Date(date + 'T12:00:00');
                     const dayOfWeekRaw = dateObj.toLocaleDateString('es-ES', { weekday: 'long' });
                     const capitalizedDay = dayOfWeekRaw.charAt(0).toUpperCase() + dayOfWeekRaw.slice(1);
-                    
                     const formattedDate = dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                    const dateDisplay = `${capitalizedDay} ${formattedDate}`;
 
-                    const schedule = user.schedule.find(s => s.day === capitalizedDay) || { start: '--:--', end: '--:--' };
+                    const schIn = session.in?.scheduledStartOverride || 
+                                  user.schedule.find(s => s.day === capitalizedDay)?.start || '--:--';
+                    const schOut = session.in?.scheduledEndOverride || session.out?.scheduledEndOverride ||
+                                   user.schedule.find(s => s.day === capitalizedDay)?.end || '--:--';
 
-                    const realInTime = session.in ? new Date(session.in.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : 'S/F';
-                    const realOutTime = session.out ? new Date(session.out.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : 'S/F';
+                    const realInTime = formatToHHMM(session.in?.timestamp) || 'S/F';
+                    const realOutTime = formatToHHMM(session.out?.timestamp) || 'S/F';
 
                     let diffStr = "0.00";
                     if (session.in && session.out) {
@@ -1006,56 +1072,179 @@ const PayrollDashboard = () => {
                         diffStr = (diffMs / (1000 * 60 * 60)).toFixed(2);
                     }
 
-                    const isLate = session.in && schedule.start !== '--:--' && realInTime > schedule.start;
-                    const isEarly = session.out && schedule.end !== '--:--' && realOutTime < schedule.end;
-                    const isMissing = !session.in || !session.out;
+                    const isLate = session.in && schIn !== '--:--' && realInTime > schIn;
+                    const isEarly = session.out && schOut !== '--:--' && realOutTime < schOut;
+                    
+                    const isDressOk = session.in ? session.in.dressCodeStatus === 'PASS' : true;
+                    const isLocationOk = (session.in ? session.in.locationStatus === 'VALID' : true) && 
+                                        (session.out ? session.out.locationStatus === 'VALID' : true);
 
-                    const item: PayrollItem = {
+                    items.push({
                         id: Math.random().toString(36).substr(2, 9),
-                        dateDisplay,
+                        dayName: capitalizedDay,
+                        dateFormatted: formattedDate,
                         userName: user.name,
+                        userDni: user.dni,
                         role: user.role,
-                        scheduledIn: schedule.start,
+                        scheduledIn: schIn,
                         realIn: realInTime,
-                        scheduledOut: schedule.end,
+                        scheduledOut: schOut,
                         realOut: realOutTime,
+                        realInISO: session.in?.timestamp,
+                        realOutISO: session.out?.timestamp,
                         diffHours: diffStr,
-                        aiDetail: "Analizando incidencia...",
-                        isIncident: isLate || isEarly || isMissing
-                    };
-                    items.push(item);
+                        isLate: !!isLate,
+                        isEarlyExit: !!isEarly,
+                        isDressOk,
+                        isLocationOk,
+                        inLogId: session.in?.id,
+                        outLogId: session.out?.id,
+                        rawDate: date
+                    });
                 }
             }
-
             setPayrollItems(items);
-            items.forEach(async (item, idx) => {
-                const detail = await generateIncidentExplanation(item.userName, item.scheduledIn, item.realIn, item.scheduledOut, item.realOut);
-                setPayrollItems(prev => {
-                    const updated = [...prev];
-                    if(updated[idx]) updated[idx] = { ...updated[idx], aiDetail: detail };
-                    return updated;
-                });
-            });
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
 
     useEffect(() => { loadPayroll(); }, []);
 
+    const getExportData = () => {
+        return payrollItems.map(item => ({
+            Día: item.dayName,
+            Fecha: item.dateFormatted,
+            Nombre: item.userName,
+            DNI: item.userDni,
+            Rol: item.role,
+            'Ingreso Real': item.realIn,
+            'Egreso Real': item.realOut,
+            'Ingreso Teórico': item.scheduledIn,
+            'Egreso Teórico': item.scheduledOut,
+            'Total Horas': item.diffHours,
+            'Llegada Tarde': item.isLate ? 'SI' : 'NO',
+            'Salida Temprana': item.isEarlyExit ? 'SI' : 'NO',
+            'Vestimenta OK': item.isDressOk ? 'SI' : 'NO',
+            'Salón OK': item.isLocationOk ? 'SI' : 'NO'
+        }));
+    };
+
     const exportToPDF = () => {
         const doc = new jsPDF('l', 'mm', 'a4');
         doc.setFontSize(16);
-        doc.text("Reporte de Liquidación e Incidencias - UpFest", 14, 15);
+        doc.text("Reporte de Liquidación - UpFest", 14, 15);
         autoTable(doc, {
-            head: [['#', 'Día y Fecha', 'Persona', 'Rol', 'H. Ingreso (P)', 'H. Ingreso (R)', 'H. Egreso (P)', 'H. Egreso (R)', 'Hs', 'Detalle IA']],
+            head: [['#', 'Día', 'Fecha', 'Nombre', 'DNI', 'Hs Real', 'Horario Teórico', 'Llegada Tarde', 'Salida Temprana', 'Vestimenta OK', 'Salón OK']],
             body: payrollItems.map((item, i) => [
-                i + 1, item.dateDisplay, item.userName, item.role, item.scheduledIn, item.realIn, item.scheduledOut, item.realOut, item.diffHours, item.aiDetail
+                i + 1, item.dayName, item.dateFormatted, item.userName, item.userDni, item.diffHours, 
+                `${item.scheduledIn} - ${item.scheduledOut}`,
+                item.isLate ? 'SI' : 'NO', 
+                item.isEarlyExit ? 'SI' : 'NO', 
+                item.isDressOk ? 'SI' : 'NO', 
+                item.isLocationOk ? 'SI' : 'NO'
             ]),
             startY: 25,
             theme: 'grid',
-            styles: { fontSize: 7, cellPadding: 2 },
+            styles: { fontSize: 8, cellPadding: 2 },
             headStyles: { fillColor: [30, 41, 59] }
         });
         doc.save(`Liquidacion_UpFest_${startDate}_al_${endDate}.pdf`);
+    };
+
+    const exportToExcel = () => {
+        const data = getExportData();
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Payroll");
+        XLSX.writeFile(wb, `Liquidacion_UpFest_${startDate}_al_${endDate}.xlsx`);
+    };
+
+    const exportToCSV = () => {
+        const data = getExportData();
+        const ws = XLSX.utils.json_to_sheet(data);
+        const csv = XLSX.utils.sheet_to_csv(ws);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Liquidacion_UpFest_${startDate}_al_${endDate}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handleEditClick = (item: PayrollItem) => {
+        setEditingItem(item);
+        setEditRealInTime(item.realIn === 'S/F' ? '' : item.realIn);
+        setEditRealOutTime(item.realOut === 'S/F' ? '' : item.realOut);
+        setEditSchInTime(item.scheduledIn === '--:--' ? '' : item.scheduledIn);
+        setEditSchOutTime(item.scheduledOut === '--:--' ? '' : item.scheduledOut);
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editingItem) return;
+        setIsSavingEdit(true);
+        try {
+            const schStart = editSchInTime || null;
+            const schEnd = editSchOutTime || null;
+
+            // Reconstrucción robusta de la fecha ISO
+            const createTimestamp = (timeStr: string) => {
+                const [h, m] = timeStr.split(':').map(Number);
+                const d = new Date(editingItem.rawDate + 'T12:00:00');
+                d.setHours(h, m, 0, 0);
+                return isNaN(d.getTime()) ? null : d.toISOString();
+            };
+
+            const promises = [];
+
+            if (editingItem.inLogId) {
+                const inUpdates: any = { scheduledStartOverride: schStart, scheduledEndOverride: schEnd };
+                if (editRealInTime) {
+                    const ts = createTimestamp(editRealInTime);
+                    if (ts) inUpdates.timestamp = ts;
+                }
+                promises.push(updateLog(editingItem.inLogId, inUpdates));
+            }
+
+            if (editingItem.outLogId) {
+                const outUpdates: any = { scheduledStartOverride: schStart, scheduledEndOverride: schEnd };
+                if (editRealOutTime) {
+                    const ts = createTimestamp(editRealOutTime);
+                    if (ts) outUpdates.timestamp = ts;
+                }
+                promises.push(updateLog(editingItem.outLogId, outUpdates));
+            }
+
+            await Promise.all(promises);
+            setEditingItem(null);
+            await loadPayroll();
+        } catch (e: any) {
+            console.error("Error en handleSaveEdit:", e);
+            alert(`Error al guardar: ${e.message || 'Error desconocido'}`);
+        } finally {
+            setIsSavingEdit(false);
+        }
+    };
+
+    const handleDeleteClick = async (item: PayrollItem) => {
+        if (!confirm(`¿Eliminar definitivamente los registros de asistencia de ${item.userName} del día ${item.dateFormatted}?`)) return;
+        try {
+            if (item.inLogId) await deleteLog(item.inLogId);
+            if (item.outLogId) await deleteLog(item.outLogId);
+            await loadPayroll();
+        } catch (e) {
+            alert("Error al eliminar registros");
+        }
+    };
+
+    const StatusBadge = ({ value, negative }: { value: boolean, negative?: boolean }) => {
+        const isWarning = negative ? value : !value;
+        return (
+            <span className={`px-3 py-1 rounded-full text-[10px] font-black border tracking-tighter ${isWarning ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                {value ? 'SI' : 'NO'}
+            </span>
+        );
     };
 
     return (
@@ -1063,11 +1252,17 @@ const PayrollDashboard = () => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter">LIQUIDACIONES</h1>
-                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-1">Auditoría horaria asistida por IA</p>
+                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-1">Auditoría horaria y cumplimiento</p>
                 </div>
-                <div className="flex gap-2 w-full md:w-auto">
+                <div className="flex flex-wrap gap-2 w-full md:w-auto">
                     <button onClick={exportToPDF} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl hover:bg-slate-50 transition shadow-sm font-black text-[10px] uppercase tracking-widest">
-                        <Download size={16} /> PDF
+                        <FileText size={16} className="text-red-500" /> PDF
+                    </button>
+                    <button onClick={exportToExcel} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl hover:bg-slate-50 transition shadow-sm font-black text-[10px] uppercase tracking-widest">
+                        <FileSpreadsheet size={16} className="text-emerald-500" /> Excel
+                    </button>
+                    <button onClick={exportToCSV} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl hover:bg-slate-50 transition shadow-sm font-black text-[10px] uppercase tracking-widest">
+                        <File size={16} className="text-blue-500" /> CSV
                     </button>
                     <button onClick={loadPayroll} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-2xl hover:bg-slate-800 transition shadow-lg shadow-slate-200 font-black text-[10px] uppercase tracking-widest">
                         <RotateCcw size={16} /> Refrescar
@@ -1087,47 +1282,63 @@ const PayrollDashboard = () => {
                     </div>
                 </div>
                 <button onClick={loadPayroll} className="w-full md:w-auto bg-orange-600 text-white px-12 py-3.5 md:py-4 rounded-xl md:rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-orange-700 transition shadow-xl shadow-orange-100">
-                    <Search size={18} className="inline mr-2" /> Buscar
+                    <Search size={18} className="inline mr-2" /> Consultar
                 </button>
             </div>
 
             <div className="bg-white rounded-[28px] md:rounded-[40px] shadow-sm border border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto -mx-0">
-                    <table className="w-full text-left border-collapse min-w-[1000px]">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[1400px]">
                         <thead>
                             <tr className="bg-slate-50 border-b border-slate-200">
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center w-12">#</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Día y Fecha</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Persona</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Rol</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">H. Ingreso (P)</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">H. Ingreso (R)</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">H. Egreso (P)</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">H. Egreso (R)</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Día</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Fecha</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Nombre</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">DNI</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Horario Real</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">H. Programado</th>
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Total Hs</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Observación IA</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Llegada Tarde</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Salida Temprana</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Vestimenta OK</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Salón OK</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {loading ? (
-                                <tr><td colSpan={10} className="p-24 text-center text-slate-400 italic font-black uppercase tracking-[0.2em] text-[10px]">Analizando incidencias con UpFest AI...</td></tr>
+                                <tr><td colSpan={13} className="p-24 text-center text-slate-400 italic font-black uppercase tracking-[0.2em] text-[10px]">Analizando datos con UpFest AI...</td></tr>
                             ) : payrollItems.length === 0 ? (
-                                <tr><td colSpan={10} className="p-24 text-center text-slate-400 italic font-bold">No hay registros para este período.</td></tr>
+                                <tr><td colSpan={13} className="p-24 text-center text-slate-400 italic font-bold">No hay registros para este período.</td></tr>
                             ) : payrollItems.map((item, idx) => (
-                                <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${item.isIncident ? 'bg-orange-50/20' : ''}`}>
+                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                     <td className="p-4 md:p-6 text-center font-mono text-xs text-slate-400">{idx + 1}</td>
-                                    <td className="p-4 md:p-6"><span className="text-[10px] font-black text-slate-900 uppercase">{item.dateDisplay}</span></td>
+                                    <td className="p-4 md:p-6"><span className="text-[10px] font-black text-slate-900 uppercase">{item.dayName}</span></td>
+                                    <td className="p-4 md:p-6 text-xs font-bold text-slate-500">{item.dateFormatted}</td>
                                     <td className="p-4 md:p-6 font-black text-slate-900 tracking-tight">{item.userName}</td>
-                                    <td className="p-4 md:p-6"><span className="text-[9px] font-black bg-slate-100 text-slate-400 px-3 py-1.5 rounded-full border border-slate-200 uppercase tracking-tighter">{item.role}</span></td>
-                                    <td className="p-4 md:p-6 text-center text-xs font-bold text-slate-400">{item.scheduledIn}</td>
-                                    <td className={`p-4 md:p-6 text-center text-sm font-black ${item.realIn > item.scheduledIn && item.scheduledIn !== '--:--' ? 'text-red-500' : 'text-slate-900'}`}>{item.realIn}</td>
-                                    <td className="p-4 md:p-6 text-center text-xs font-bold text-slate-400">{item.scheduledOut}</td>
-                                    <td className={`p-4 md:p-6 text-center text-sm font-black ${item.realOut < item.scheduledOut && item.scheduledOut !== '--:--' ? 'text-red-500' : 'text-slate-900'}`}>{item.realOut}</td>
+                                    <td className="p-4 md:p-6 font-mono text-xs text-slate-500">{item.userDni}</td>
+                                    <td className="p-4 md:p-6 text-center">
+                                       <div className="flex flex-col items-center gap-0.5">
+                                          <span className="text-[10px] font-black text-slate-900 tracking-tight">{item.realIn} - {item.realOut}</span>
+                                          <span className="text-[8px] font-black text-slate-300 uppercase">Fichado</span>
+                                       </div>
+                                    </td>
+                                    <td className="p-4 md:p-6 text-center">
+                                       <div className="flex flex-col items-center gap-0.5">
+                                          <span className="text-[10px] font-black text-slate-500 tracking-tight">{item.scheduledIn} - {item.scheduledOut}</span>
+                                          <span className="text-[8px] font-black text-slate-300 uppercase">Teórico</span>
+                                       </div>
+                                    </td>
                                     <td className="p-4 md:p-6 text-center font-mono font-black text-slate-900 bg-slate-50/50">{item.diffHours}H</td>
-                                    <td className="p-4 md:p-6 max-w-xs">
-                                        <div className="flex items-start gap-2 italic text-xs font-bold leading-relaxed text-slate-500">
-                                            <Sparkles size={14} className="text-orange-500 mt-1 shrink-0" />
-                                            {item.aiDetail}
+                                    <td className="p-4 md:p-6 text-center"><StatusBadge value={item.isLate} negative /></td>
+                                    <td className="p-4 md:p-6 text-center"><StatusBadge value={item.isEarlyExit} negative /></td>
+                                    <td className="p-4 md:p-6 text-center"><StatusBadge value={item.isDressOk} /></td>
+                                    <td className="p-4 md:p-6 text-center"><StatusBadge value={item.isLocationOk} /></td>
+                                    <td className="p-4 md:p-6 text-center">
+                                        <div className="flex justify-center gap-2">
+                                            <button onClick={() => handleEditClick(item)} className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition border border-transparent hover:border-orange-100" title="Editar jornada completa"><Pencil size={14}/></button>
+                                            <button onClick={() => handleDeleteClick(item)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition border border-transparent hover:border-red-100" title="Borrar jornada"><Trash2 size={14}/></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -1136,6 +1347,96 @@ const PayrollDashboard = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Modal Edición de Jornada (Fichada + Teórico) */}
+            {editingItem && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[32px] md:rounded-[40px] p-8 md:p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
+                        <div className="flex justify-between items-center mb-8">
+                            <div>
+                                <h3 className="font-black text-xl text-slate-900 tracking-tighter uppercase">CORREGIR JORNADA</h3>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{editingItem.userName} • {editingItem.dateFormatted}</p>
+                            </div>
+                            <button onClick={() => setEditingItem(null)} className="p-2 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-full"><X size={20}/></button>
+                        </div>
+                        
+                        <div className="space-y-8">
+                            {/* Sección Fichada Real */}
+                            <div>
+                                <label className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-4 block border-b border-orange-100 pb-1">Fichada Real (Biométrico)</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Ingreso Real</label>
+                                        <input 
+                                            type="time" 
+                                            value={editRealInTime} 
+                                            onChange={e => setEditRealInTime(e.target.value)} 
+                                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 focus:ring-8 focus:ring-orange-500/5 outline-none" 
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Egreso Real</label>
+                                        <input 
+                                            type="time" 
+                                            value={editRealOutTime} 
+                                            onChange={e => setEditRealOutTime(e.target.value)} 
+                                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 focus:ring-8 focus:ring-orange-500/5 outline-none" 
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Sección Horario Teórico */}
+                            <div>
+                                <label className="text-[9px] font-black text-slate-900 uppercase tracking-widest mb-4 block border-b border-slate-100 pb-1">Horario Programado (Teórico)</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Entrada Teórica</label>
+                                        <input 
+                                            type="time" 
+                                            value={editSchInTime} 
+                                            onChange={e => setEditSchInTime(e.target.value)} 
+                                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 focus:ring-8 focus:ring-slate-500/5 outline-none" 
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Salida Teórica</label>
+                                        <input 
+                                            type="time" 
+                                            value={editSchOutTime} 
+                                            onChange={e => setEditSchOutTime(e.target.value)} 
+                                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 focus:ring-8 focus:ring-slate-500/5 outline-none" 
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-500 leading-relaxed italic">
+                                    <Sparkles size={12} className="inline mr-1 mb-0.5 text-orange-500" />
+                                    Cambiar el Horario Programado permite justificar tardanzas que ocurrieron por cambios de último momento en el turno.
+                                </p>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => setEditingItem(null)} 
+                                    className="flex-1 px-4 py-4 bg-slate-100 text-slate-400 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition"
+                                >
+                                    Cancelar
+                                </button>
+                                <button 
+                                    onClick={handleSaveEdit} 
+                                    disabled={isSavingEdit}
+                                    className="flex-[2] px-4 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition shadow-xl disabled:opacity-50"
+                                >
+                                    {isSavingEdit ? 'Procesando...' : 'Aplicar Corrección'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1167,7 +1468,7 @@ const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl, isMo
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
           <div className="p-10 border-b border-slate-50 flex flex-col items-center relative">
-              <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-4 right-4 text-slate-300 md:hidden"><X/></button>
+              <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-4 right-4 text-slate-300 md:hidden"><X size={20} /></button>
               {logoUrl ? <img src={logoUrl} alt="Logo" className="h-16 w-auto object-contain mb-4" /> : <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mb-4 shadow-2xl">UP</div>}
               <span className="font-black text-slate-900 tracking-tighter text-2xl">UPFEST</span>
               <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Asistencia</span>
@@ -1215,7 +1516,7 @@ export default function App() {
   if (!currentUser) return <LoginView onLogin={u => { setCurrentUser(u); setActiveTab(u.role === Role.ADMIN ? 'payroll' : 'clock'); }} logoUrl={logoUrl} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans flex-col md:flex-row overflow-hidden">
+    <div className="min-h-screen bg-slate-50 flex font-sans flex-col md:flex-row overflow-hidden text-slate-900">
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 

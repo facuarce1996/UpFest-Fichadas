@@ -53,6 +53,9 @@ export interface LogEntry {
   identityStatus: 'MATCH' | 'NO_MATCH' | 'NO_REF' | 'SKIPPED'; 
   photoEvidence: string;
   aiFeedback: string;
+  // Campos de corrección manual para Liquidaciones
+  scheduledStartOverride?: string; 
+  scheduledEndOverride?: string;
 }
 
 export interface Incident {
