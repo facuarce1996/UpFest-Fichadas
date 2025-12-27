@@ -999,7 +999,7 @@ interface PayrollItem {
     realOut: string;
     realInISO?: string;
     realOutISO?: string;
-    diffHours: string;
+    diffHours: string; // Se usará para almacenar los minutos totales en string
     isLate: boolean;
     isEarlyExit: boolean;
     isDressOk: boolean;
@@ -1066,10 +1066,11 @@ const PayrollDashboard = () => {
                     const realInTime = formatToHHMM(session.in?.timestamp) || 'S/F';
                     const realOutTime = formatToHHMM(session.out?.timestamp) || 'S/F';
 
-                    let diffStr = "0.00";
+                    let diffStr = "0";
                     if (session.in && session.out) {
                         const diffMs = new Date(session.out.timestamp).getTime() - new Date(session.in.timestamp).getTime();
-                        diffStr = (diffMs / (1000 * 60 * 60)).toFixed(2);
+                        // Conversión a MINUTOS TOTALES enteros
+                        diffStr = Math.round(diffMs / (1000 * 60)).toString();
                     }
 
                     const isLate = session.in && schIn !== '--:--' && realInTime > schIn;
@@ -1120,7 +1121,7 @@ const PayrollDashboard = () => {
             'Egreso Real': item.realOut,
             'Ingreso Teórico': item.scheduledIn,
             'Egreso Teórico': item.scheduledOut,
-            'Total Horas': item.diffHours,
+            'Total Minutos': item.diffHours,
             'Llegada Tarde': item.isLate ? 'SI' : 'NO',
             'Salida Temprana': item.isEarlyExit ? 'SI' : 'NO',
             'Vestimenta OK': item.isDressOk ? 'SI' : 'NO',
@@ -1133,7 +1134,7 @@ const PayrollDashboard = () => {
         doc.setFontSize(16);
         doc.text("Reporte de Liquidación - UpFest", 14, 15);
         autoTable(doc, {
-            head: [['#', 'Día', 'Fecha', 'Nombre', 'DNI', 'Hs Real', 'Horario Teórico', 'Llegada Tarde', 'Salida Temprana', 'Vestimenta OK', 'Salón OK']],
+            head: [['#', 'Día', 'Fecha', 'Nombre', 'DNI', 'Minutos', 'Horario Teórico', 'Llegada Tarde', 'Salida Temprana', 'Vestimenta OK', 'Salón OK']],
             body: payrollItems.map((item, i) => [
                 i + 1, item.dayName, item.dateFormatted, item.userName, item.userDni, item.diffHours, 
                 `${item.scheduledIn} - ${item.scheduledOut}`,
@@ -1298,7 +1299,7 @@ const PayrollDashboard = () => {
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">DNI</th>
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Horario Real</th>
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">H. Programado</th>
-                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Total Hs</th>
+                                <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Minutos</th>
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Llegada Tarde</th>
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Salida Temprana</th>
                                 <th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Vestimenta OK</th>
@@ -1330,7 +1331,7 @@ const PayrollDashboard = () => {
                                           <span className="text-[8px] font-black text-slate-300 uppercase">Teórico</span>
                                        </div>
                                     </td>
-                                    <td className="p-4 md:p-6 text-center font-mono font-black text-slate-900 bg-slate-50/50">{item.diffHours}H</td>
+                                    <td className="p-4 md:p-6 text-center font-mono font-black text-slate-900 bg-slate-50/50">{item.diffHours}m</td>
                                     <td className="p-4 md:p-6 text-center"><StatusBadge value={item.isLate} negative /></td>
                                     <td className="p-4 md:p-6 text-center"><StatusBadge value={item.isEarlyExit} negative /></td>
                                     <td className="p-4 md:p-6 text-center"><StatusBadge value={item.isDressOk} /></td>
