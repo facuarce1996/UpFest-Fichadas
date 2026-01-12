@@ -55,6 +55,7 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
+    // Inicializar cliente justo antes del uso según reglas de ingeniería senior
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const parts: Part[] = [];
     
@@ -67,12 +68,12 @@ export const analyzeCheckIn = async (
         }
     }
 
-    let prompt = `Actúa como oficial de seguridad de UpFest.
-      Analiza la foto actual y compárala con las reglas:
+    const prompt = `Actúa como oficial de seguridad de UpFest. Analiza la imagen actual.
+      REGLAS:
       1. Vestimenta requerida: "${dressCodeDescription || 'Ropa formal de trabajo'}".
-      2. Identidad: ${refBase64 ? 'Compara con la foto de referencia adjunta.' : 'No hay foto de referencia, asume que la identidad es correcta.'}
+      2. Identidad: ${refBase64 ? 'Compara con la foto de referencia adjunta para confirmar que es la misma persona.' : 'No hay referencia, valida solo presencia de rostro.'}
       
-      IMPORTANTE: Responde estrictamente en formato JSON siguiendo el esquema proporcionado.`;
+      RESPONDE SOLO EN JSON.`;
 
     if (refBase64) {
       parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
@@ -87,24 +88,23 @@ export const analyzeCheckIn = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: validationSchema,
-        temperature: 0.1, // Baja temperatura para mayor consistencia en JSON
+        temperature: 0.1,
       },
     });
 
     const resultText = response.text?.trim();
-    if (!resultText) throw new Error("Respuesta vacía de la IA");
+    if (!resultText) throw new Error("Sin respuesta del modelo");
     
     return JSON.parse(resultText);
   } catch (error: any) {
-    // Log detallado para que el usuario pueda verlo en F12
-    console.error("--- ERROR CRÍTICO GEMINI API ---");
-    console.error("Mensaje:", error.message);
-    console.error("Stack:", error.stack);
+    console.error("Gemini API Error:", error);
     
+    // El error "API key expired" suele ser externo a la lógica de código, 
+    // pero devolvemos un mensaje descriptivo para el usuario.
     return { 
         identityMatch: false, 
         dressCodeMatches: false, 
-        description: `Error técnico: ${error.message || 'Fallo de conexión con Gemini'}. Revisa la consola (F12) para más detalles.`, 
+        description: `Error de API: ${error.message || 'La clave de API podría estar vencida o agotada'}.`, 
         confidence: 0 
     };
   }
@@ -119,14 +119,12 @@ export const generateIncidentExplanation = async (
 ): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Redacta una oración profesional y breve de RRHH para ${userName}.
-      Horario Programado: ${scheduledIn} a ${scheduledOut}.
-      Fichada Real: ${realIn} a ${realOut}.`;
+    const prompt = `Redacta una breve nota de RRHH para ${userName}. Programado: ${scheduledIn}-${scheduledOut}. Real: ${realIn}-${realOut}.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
-      config: { temperature: 0.7 }
+      config: { temperature: 0.5 }
     });
 
     return response.text || "Sin detalle.";

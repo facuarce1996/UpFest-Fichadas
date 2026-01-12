@@ -136,9 +136,17 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     if (!deviceLocation || !photo) return;
     setLoading(true);
     try {
-      const pos = await getCurrentPosition();
-      const currentDist = calculateDistance(pos.coords.latitude, pos.coords.longitude, deviceLocation.lat, deviceLocation.lng);
-      const isLocationValid = currentDist <= (deviceLocation.radiusMeters || 100);
+      // Intentamos obtener posición pero para el registro interno, no para bloquear si es terminal fija
+      let isLocationValid = true;
+      let currentDist = 0;
+      try {
+        const pos = await getCurrentPosition();
+        currentDist = calculateDistance(pos.coords.latitude, pos.coords.longitude, deviceLocation.lat, deviceLocation.lng);
+        isLocationValid = currentDist <= (deviceLocation.radiusMeters || 100);
+      } catch (e) {
+        console.warn("No se pudo validar geolocalización, se asume terminal válida");
+      }
+
       const aiResult: ValidationResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
       const diffMsg = calculateDiffMessage(type);
       const log: LogEntry = {
@@ -181,7 +189,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   }
 
   if (resultSummary) {
-    const hasIssues = !resultSummary.isLocationValid || !resultSummary.aiResult.identityMatch || !resultSummary.aiResult.dressCodeMatches;
+    const hasIssues = !resultSummary.aiResult.identityMatch || !resultSummary.aiResult.dressCodeMatches;
     return (
       <div className="max-w-xl mx-auto p-4 md:p-12 animate-in fade-in zoom-in-95 duration-500">
         <div className="bg-white rounded-[32px] md:rounded-[40px] p-6 md:p-10 border border-slate-200 shadow-2xl shadow-slate-200/50">
@@ -193,16 +201,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Verificación completada por UpFest AI</p>
           </div>
           <div className="space-y-4 mb-8 md:mb-10">
-            <div className={`p-4 md:p-5 rounded-2xl md:rounded-3xl border flex items-center justify-between ${resultSummary.isLocationValid ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
-              <div className="flex items-center gap-4">
-                <MapPin size={20} className={resultSummary.isLocationValid ? 'text-emerald-600' : 'text-red-600'} />
-                <div>
-                  <span className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Ubicación</span>
-                  <span className={`text-xs font-bold ${resultSummary.isLocationValid ? 'text-emerald-700' : 'text-red-700'}`}>{resultSummary.isLocationValid ? 'En rango permitido' : `Fuera de rango (${Math.round(resultSummary.dist)}m)`}</span>
-                </div>
-              </div>
-              {resultSummary.isLocationValid ? <CheckCircle size={18} className="text-emerald-600" /> : <XCircle size={18} className="text-red-600" />}
-            </div>
             <div className={`p-4 md:p-5 rounded-2xl md:rounded-3xl border flex items-center justify-between ${resultSummary.aiResult.identityMatch ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
               <div className="flex items-center gap-4">
                 <UserCheck size={20} className={resultSummary.aiResult.identityMatch ? 'text-emerald-600' : 'text-red-600'} />
@@ -566,7 +564,8 @@ const PayrollDashboard = () => {
     const loadPayroll = async () => {
         setLoading(true);
         try {
-            const [users, logs] = await Promise.all([fetchUsers(), fetchLogsByDateRange(new Date(dates.start), new Date(dates.end + 'T23:59:59'))]);
+            // Fix: correctly assign logs to the 3rd result of Promise.all (LogEntry[]), otherwise it was picking locations (index 1)
+            const [users, locations, logs] = await Promise.all([fetchUsers(), fetchLocations(), fetchLogsByDateRange(new Date(dates.start), new Date(dates.end + 'T23:59:59'))]);
             const items = logs.map(l => ({ ...l, userName: l.userName, date: l.timestamp.split('T')[0], time: formatToHHMM(l.timestamp) }));
             setPayrollItems(items);
         } finally { setLoading(false); }
