@@ -319,6 +319,10 @@ const AdminDashboard = () => {
   const [importingExcel, setImportingExcel] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
 
+  // Form State
+  const [formData, setFormData] = useState<Partial<User>>({});
+  const [formSaving, setFormSaving] = useState(false);
+
   const load = async () => { 
     setLoading(true); 
     try { 
@@ -328,6 +332,45 @@ const AdminDashboard = () => {
   };
   
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (editingUser) {
+      setFormData(editingUser);
+    } else {
+      setFormData({
+        role: 'Mozo',
+        schedule: [],
+        assignedLocations: []
+      });
+    }
+  }, [editingUser, isCreating]);
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.dni) return alert("Nombre y DNI son obligatorios");
+    setFormSaving(true);
+    try {
+      await saveUser(formData as User);
+      setEditingUser(null);
+      setIsCreating(false);
+      load();
+    } catch (error: any) {
+      alert("Error al guardar: " + error.message);
+    } finally {
+      setFormSaving(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, referenceImage: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const downloadExcelTemplate = () => {
     const headers = [
@@ -404,10 +447,96 @@ const AdminDashboard = () => {
           </div>
       </div>
       <div className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-sm">
-         <div className="overflow-x-auto"><table className="w-full text-left border-collapse min-w-[600px]"><thead><tr className="bg-slate-50 border-b border-slate-200"><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Colaborador</th><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Legajo / DNI</th><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Rol</th><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-right">Acciones</th></tr></thead><tbody className="divide-y divide-slate-100">{loading ? (<tr><td colSpan={4} className="p-16 text-center text-slate-400 font-bold italic">Cargando nómina...</td></tr>) : users.length === 0 ? (<tr><td colSpan={4} className="p-16 text-center text-slate-400 font-bold italic">No hay registros.</td></tr>) : users.map(u => (<tr key={u.id} className="hover:bg-slate-50 transition-colors"><td className="p-4 md:p-6"><div className="flex items-center gap-4"><div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0 shadow-sm">{u.referenceImage ? <img src={u.referenceImage} className="w-full h-full object-cover" /> : <UserIcon size={18} className="m-auto mt-2.5 md:mt-3 text-slate-300"/>}</div><div><span className="font-black text-slate-800 block tracking-tight text-sm md:text-base">{u.name}</span><span className="text-[9px] text-slate-400 font-black uppercase tracking-wider">{u.role}</span></div></div></td><td className="p-4 md:p-6 text-xs font-mono font-bold text-slate-900 tracking-tighter">ID: {u.legajo || 'N/A'}<br/><span className="text-[9px] text-slate-400">DNI: {u.dni}</span></td><td className="p-4 md:p-6 text-center text-[9px] md:text-[10px] font-black text-slate-900 uppercase">{u.role}</td><td className="p-4 md:p-6 text-right"><div className="flex justify-end gap-1"><button onClick={() => {}} className="p-2 text-slate-400 hover:text-orange-600 rounded-xl transition"><Pencil size={16}/></button><button onClick={async () => { if(confirm('¿Eliminar?')) { await deleteUser(u.id); load(); } }} className="p-2 text-slate-400 hover:text-red-600 rounded-xl transition"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div>
+         <div className="overflow-x-auto"><table className="w-full text-left border-collapse min-w-[600px]"><thead><tr className="bg-slate-50 border-b border-slate-200"><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Colaborador</th><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest">Legajo / DNI</th><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-center">Rol</th><th className="p-4 md:p-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-right">Acciones</th></tr></thead><tbody className="divide-y divide-slate-100">{loading ? (<tr><td colSpan={4} className="p-16 text-center text-slate-400 font-bold italic">Cargando nómina...</td></tr>) : users.length === 0 ? (<tr><td colSpan={4} className="p-16 text-center text-slate-400 font-bold italic">No hay registros.</td></tr>) : users.map(u => (<tr key={u.id} className="hover:bg-slate-50 transition-colors"><td className="p-4 md:p-6"><div className="flex items-center gap-4"><div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0 shadow-sm">{u.referenceImage ? <img src={u.referenceImage} className="w-full h-full object-cover" /> : <UserIcon size={18} className="m-auto mt-2.5 md:mt-3 text-slate-300"/>}</div><div><span className="font-black text-slate-800 block tracking-tight text-sm md:text-base">{u.name}</span><span className="text-[9px] text-slate-400 font-black uppercase tracking-wider">{u.role}</span></div></div></td><td className="p-4 md:p-6 text-xs font-mono font-bold text-slate-900 tracking-tighter">ID: {u.legajo || 'N/A'}<br/><span className="text-[9px] text-slate-400">DNI: {u.dni}</span></td><td className="p-4 md:p-6 text-center text-[9px] md:text-[10px] font-black text-slate-900 uppercase">{u.role}</td><td className="p-4 md:p-6 text-right"><div className="flex justify-end gap-1"><button onClick={() => setEditingUser(u)} className="p-2 text-slate-400 hover:text-orange-600 rounded-xl transition"><Pencil size={16}/></button><button onClick={async () => { if(confirm('¿Eliminar?')) { await deleteUser(u.id); load(); } }} className="p-2 text-slate-400 hover:text-red-600 rounded-xl transition"><Trash2 size={16}/></button></div></td></tr>))}</tbody></table></div>
       </div>
-      {(isCreating) && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-2"><div className="bg-white rounded-[40px] p-10 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-200"><div className="flex justify-between items-center mb-8"><div><h3 className="font-black text-2xl text-slate-900 tracking-tighter">NUEVO COLABORADOR</h3><p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Ficha de RRHH</p></div><button onClick={() => setIsCreating(false)} className="p-2 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-full"><X/></button></div><p className="text-center italic text-slate-400 py-10">Formulario simplificado próximamente.</p></div></div>
+      {(isCreating || editingUser) && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-2 overflow-y-auto py-10">
+            <div className="bg-white rounded-[40px] p-6 md:p-10 w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-200 my-auto">
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="font-black text-2xl text-slate-900 tracking-tighter uppercase">{editingUser ? 'EDITAR COLABORADOR' : 'NUEVO COLABORADOR'}</h3>
+                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Ficha de RRHH - UpFest Systems</p>
+                </div>
+                <button onClick={() => { setEditingUser(null); setIsCreating(false); }} className="p-2 bg-slate-50 text-slate-400 hover:text-slate-600 rounded-full"><X/></button>
+              </div>
+              
+              <form onSubmit={handleSaveUser} className="space-y-6">
+                <div className="flex flex-col md:flex-row gap-8">
+                  {/* Foto de Referencia */}
+                  <div className="w-full md:w-40 shrink-0">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Foto Referencia</label>
+                    <div className="relative aspect-square rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden group">
+                      {formData.referenceImage ? (
+                        <img src={formData.referenceImage} className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="text-slate-300" size={32} />
+                      )}
+                      <label className="absolute inset-0 cursor-pointer bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <Upload className="text-white" size={20} />
+                        <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Datos Básicos */}
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1 col-span-full">
+                      <label className="text-[10px] font-black uppercase text-slate-400 block ml-2">Nombre Completo</label>
+                      <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-orange-500/5" placeholder="Ej: Juan Perez" required />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 block ml-2">DNI</label>
+                      <input type="text" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-orange-500/5" placeholder="Documento" required />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 block ml-2">Legajo / ID</label>
+                      <input type="text" value={formData.legajo || ''} onChange={e => setFormData({...formData, legajo: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-orange-500/5" placeholder="ID Interno" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 block ml-2">Contraseña</label>
+                      <input type="text" value={formData.password || ''} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-orange-500/5" placeholder="Clave acceso" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 block ml-2">Rol / Puesto</label>
+                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-orange-500/5 appearance-none">
+                        {DEFAULT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block ml-2 flex items-center gap-2"><Shirt size={14}/> Código de Vestimenta</label>
+                    <textarea value={formData.dressCode || ''} onChange={e => setFormData({...formData, dressCode: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-orange-500/5 h-24 resize-none" placeholder="Ej: Camisa negra, delantal bordeaux, zapato negro..." />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block ml-2 flex items-center gap-2"><MapPin size={14}/> Sedes Asignadas</label>
+                    <div className="h-24 overflow-y-auto p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
+                      {locations.map(loc => (
+                        <label key={loc.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-100 p-1 rounded transition-colors">
+                          <input type="checkbox" checked={formData.assignedLocations?.includes(loc.id)} onChange={e => {
+                            const current = formData.assignedLocations || [];
+                            const next = e.target.checked ? [...current, loc.id] : current.filter(id => id !== loc.id);
+                            setFormData({...formData, assignedLocations: next});
+                          }} className="rounded-md border-slate-300 text-orange-600 focus:ring-orange-500" />
+                          <span className="text-xs font-bold text-slate-700">{loc.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-6">
+                  <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="flex-1 py-4 px-6 border border-slate-200 text-slate-400 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition">Cancelar</button>
+                  <button type="submit" disabled={formSaving} className="flex-[2] py-4 px-6 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition shadow-xl shadow-slate-900/20 flex items-center justify-center gap-2">
+                    {formSaving ? <RefreshCw className="animate-spin" size={16}/> : <Save size={16}/>} 
+                    {editingUser ? 'GUARDAR CAMBIOS' : 'CREAR COLABORADOR'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
       )}
     </div>
   );
@@ -424,7 +553,7 @@ const LocationsDashboard = () => {
     return (
         <div className="max-w-7xl mx-auto p-4 md:p-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4"><div><h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter">SALONES</h1><p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-1">Sedes UpFest & Geocercas</p></div><button onClick={() => setIsCreating(true)} className="w-full md:w-auto bg-slate-900 text-white px-6 py-3 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-800 transition shadow-xl font-black text-[10px] uppercase tracking-widest"><Plus size={18} /> Nuevo Salón</button></div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">{loading ? (<div className="col-span-full py-20 text-center text-slate-400 font-bold uppercase text-xs">Cargando sedes...</div>) : locations.map(loc => (<div key={loc.id} className={`bg-white rounded-[32px] p-8 border ${currentDeviceLocId === loc.id ? 'border-orange-500 ring-4 ring-orange-500/10' : 'border-slate-200'} shadow-sm flex flex-col`}>{currentDeviceLocId === loc.id && (<div className="absolute top-4 right-4 bg-orange-500 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase flex items-center gap-1.5 shadow-lg"><Laptop size={10}/> Activa</div>)}<div className="p-4 bg-orange-50 text-orange-600 rounded-2xl w-fit mb-4"><MapPinned size={28} /></div><h3 className="font-black text-slate-900 text-xl mb-2 tracking-tighter">{loc.name}</h3><p className="text-xs text-slate-500 mb-6 font-bold leading-relaxed">{loc.address}</p><div className="mt-auto pt-6 border-t flex gap-2">{currentDeviceLocId !== loc.id && (<button onClick={() => {localStorage.setItem('upfest_terminal_location_id', loc.id); setCurrentDeviceLocId(loc.id);}} className="flex-1 bg-slate-900 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest">Vincular</button>)}<button onClick={async () => {if(confirm('¿Eliminar?')) {await deleteLocation(loc.id); load();}}} className="p-3 bg-slate-100 text-slate-500 rounded-xl transition"><Trash2 size={16}/></button></div></div>))}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">{loading ? (<div className="col-span-full py-20 text-center text-slate-400 font-bold uppercase text-xs">Cargando sedes...</div>) : locations.map(loc => (<div key={loc.id} className={`relative bg-white rounded-[32px] p-8 border ${currentDeviceLocId === loc.id ? 'border-orange-500 ring-4 ring-orange-500/10' : 'border-slate-200'} shadow-sm flex flex-col`}>{currentDeviceLocId === loc.id && (<div className="absolute top-4 right-4 bg-orange-500 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase flex items-center gap-1.5 shadow-lg"><Laptop size={10}/> Activa</div>)}<div className="p-4 bg-orange-50 text-orange-600 rounded-2xl w-fit mb-4"><MapPinned size={28} /></div><h3 className="font-black text-slate-900 text-xl mb-2 tracking-tighter">{loc.name}</h3><p className="text-xs text-slate-500 mb-6 font-bold leading-relaxed">{loc.address}</p><div className="mt-auto pt-6 border-t flex gap-2">{currentDeviceLocId !== loc.id && (<button onClick={() => {localStorage.setItem('upfest_terminal_location_id', loc.id); setCurrentDeviceLocId(loc.id);}} className="flex-1 bg-slate-900 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest">Vincular</button>)}<button onClick={async () => {if(confirm('¿Eliminar?')) {await deleteLocation(loc.id); load();}}} className="p-3 bg-slate-100 text-slate-500 rounded-xl transition"><Trash2 size={16}/></button></div></div>))}</div>
         </div>
     );
 };
