@@ -102,6 +102,28 @@ const mapLocationFromDB = (l: any): Location => ({
   radiusMeters: l.radius_meters
 });
 
+const mapLogFromDB = (l: any): LogEntry => {
+  const decoded = decodeOverrides(l.ai_feedback);
+  return {
+    id: String(l.id),
+    userId: l.user_id,
+    userName: l.user_name,
+    legajo: l.legajo || '',
+    timestamp: l.timestamp,
+    type: l.type,
+    locationId: l.location_id,
+    locationName: l.location_name,
+    locationStatus: l.location_status || 'SKIPPED',
+    scheduleStatus: l.schedule_status,
+    dressCodeStatus: l.dress_code_status || 'SKIPPED',
+    identityStatus: l.identity_status || 'SKIPPED',
+    photoEvidence: l.photo_evidence || '',
+    aiFeedback: decoded.feedback || '',
+    scheduledStartOverride: decoded.start,
+    scheduledEndOverride: decoded.end
+  };
+};
+
 export const fetchUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase.from('users').select('*').order('name');
   if (error) return [];
@@ -129,7 +151,6 @@ export const saveUser = async (user: User) => {
       hire_date: user.hireDate,
       work_type: user.workType,
       address: user.address,
-      // FIX: Access assignedLocations from User interface (camelCase)
       assigned_locations: user.assignedLocations || []
     };
     if (user.id && user.id !== "" && user.id !== "0") {
@@ -172,18 +193,13 @@ export const deleteLocation = async (locId: string) => {
 export const fetchLogsByDateRange = async (startDate: Date, endDate: Date): Promise<LogEntry[]> => {
     const { data, error } = await supabase.from('logs').select('*').gte('timestamp', startDate.toISOString()).lte('timestamp', endDate.toISOString()).order('timestamp', { ascending: false });
     if (error) return [];
-    return data.map(l => {
-      const decoded = decodeOverrides(l.ai_feedback);
-      return { id: String(l.id), userId: l.user_id, userName: l.user_name, legajo: l.legajo || '', timestamp: l.timestamp, type: l.type, locationId: l.location_id, locationName: l.location_name, locationStatus: l.location_status, scheduleStatus: l.schedule_status, dressCodeStatus: l.dress_code_status, identityStatus: l.identity_status, photoEvidence: l.photo_evidence, aiFeedback: decoded.feedback, scheduledStartOverride: decoded.start, scheduledEndOverride: decoded.end };
-    });
+    return data.map(mapLogFromDB);
 };
 
 export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => {
-    const { data, error } = await supabase.from('logs').select('*').eq('user_id', userId).order('timestamp', { ascending: false }).limit(1);
-    if (error || !data || data.length === 0) return null;
-    const l = data[0];
-    const decoded = decodeOverrides(l.ai_feedback);
-    return { id: String(l.id), userId: l.user_id, userName: l.user_name, legajo: l.legajo || '', timestamp: l.timestamp, type: l.type, locationId: l.location_id, locationName: l.location_name, locationStatus: l.location_status, scheduleStatus: l.schedule_status, dressCodeStatus: l.dress_code_status, identityStatus: l.identity_status, photoEvidence: l.photo_evidence, aiFeedback: decoded.feedback, scheduledStartOverride: decoded.start, scheduledEndOverride: decoded.end };
+    const { data, error } = await supabase.from('logs').select('*').eq('user_id', userId).order('timestamp', { ascending: false }).limit(1).maybeSingle();
+    if (error || !data) return null;
+    return mapLogFromDB(data);
 };
 
 export const updateLog = async (logId: string, updates: any) => {
@@ -211,8 +227,21 @@ export const addLog = async (entry: LogEntry) => {
     const uploadedUrl = await uploadBase64Image(entry.photoEvidence, `evidence/${dateObj.getFullYear()}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}`, `${entry.userName.replace(/\s+/g, '_')}_${entry.type}_${Date.now()}.jpg`);
     if (uploadedUrl) photoUrl = uploadedUrl;
   }
-  // FIX: Access scheduleStatus from LogEntry interface (camelCase)
-  const dbLog = { user_id: entry.userId, user_name: entry.userName, legajo: entry.legajo, timestamp: entry.timestamp, type: entry.type, location_id: entry.locationId, location_name: entry.locationName, location_status: entry.locationStatus, schedule_status: entry.scheduleStatus, dress_code_status: entry.dressCodeStatus, identity_status: entry.identityStatus, photo_evidence: photoUrl, ai_feedback: encodeOverrides(entry.aiFeedback, entry.scheduledStartOverride, entry.scheduledEndOverride) };
+  const dbLog = { 
+    user_id: entry.userId, 
+    user_name: entry.userName, 
+    legajo: entry.legajo, 
+    timestamp: entry.timestamp, 
+    type: entry.type, 
+    location_id: entry.locationId, 
+    location_name: entry.locationName, 
+    location_status: entry.locationStatus, 
+    schedule_status: entry.scheduleStatus, 
+    dress_code_status: entry.dressCodeStatus, 
+    identity_status: entry.identityStatus, 
+    photo_evidence: photoUrl, 
+    ai_feedback: encodeOverrides(entry.aiFeedback, entry.scheduledStartOverride, entry.scheduledEndOverride) 
+  };
   const { error } = await supabase.from('logs').insert(dbLog);
   if (error) throw new Error(error.message);
 };
@@ -220,14 +249,11 @@ export const addLog = async (entry: LogEntry) => {
 export const fetchLogs = async (): Promise<LogEntry[]> => {
   const { data, error } = await supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
   if (error) return [];
-  return data.map(l => {
-    const decoded = decodeOverrides(l.ai_feedback);
-    return { id: String(l.id), userId: l.user_id, userName: l.user_name, legajo: l.legajo || '', timestamp: l.timestamp, type: l.type, locationId: l.location_id, locationName: l.location_name, locationStatus: l.location_status, schedule_status: l.schedule_status, dressCodeStatus: l.dress_code_status, identity_status: l.identity_status, photoEvidence: l.photo_evidence, aiFeedback: decoded.feedback, scheduledStartOverride: decoded.start, scheduledEndOverride: decoded.end };
-  });
+  return data.map(mapLogFromDB);
 };
 
 export const fetchCompanyLogo = async (): Promise<string | null> => {
-  const { data } = await supabase.from('app_settings').select('value').eq('key', 'company_logo').single();
+  const { data } = await supabase.from('app_settings').select('value').eq('key', 'company_logo').maybeSingle();
   return data ? data.value : null;
 };
 
