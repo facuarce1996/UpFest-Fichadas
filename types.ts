@@ -1,17 +1,35 @@
 
-export enum Role {
-  ADMIN = 'Admin',
-  WAITER = 'Mozo',
-  EXTRA_WAITER = 'Mozo Extra',
-  KITCHEN = 'Cocina',
-  SECURITY = 'Seguridad',
-  OTHER = 'Otro'
-}
+export type Role = string;
+
+export const DEFAULT_ROLES = [
+  'Admin',
+  'Referente',
+  'Seguridad',
+  'Bartender',
+  'Mozo',
+  'Mozo Extra',
+  'Secretaria',
+  'Encargado',
+  'Asesora',
+  'Recepcionista',
+  'Limpieza',
+  'Bachero',
+  'Chef',
+  'Maitre',
+  'Vendedor',
+  'Parking',
+  'Gerente',
+  'Sala de juegos',
+  'Guardarropa',
+  'DJ',
+  'Shows',
+  'Mantenimiento'
+];
 
 export interface WorkSchedule {
-  day: string; // e.g. "Lunes"
-  start: string; // "20:00"
-  end: string;   // "04:00"
+  day: string;
+  start: string;
+  end: string;
 }
 
 export interface Location {
@@ -35,7 +53,13 @@ export interface User {
   referenceImage: string | null; 
   schedule: WorkSchedule[]; 
   assignedLocations?: string[];
-  hourlyRate?: number; // Nuevo: Tarifa por hora
+  hourlyRate?: number;
+  // Campos nuevos de nómina
+  email?: string;
+  phone?: string;
+  hireDate?: string;
+  workType?: string;
+  address?: string;
 }
 
 export interface LogEntry {
@@ -53,7 +77,6 @@ export interface LogEntry {
   identityStatus: 'MATCH' | 'NO_MATCH' | 'NO_REF' | 'SKIPPED'; 
   photoEvidence: string;
   aiFeedback: string;
-  // Campos de corrección manual para Liquidaciones
   scheduledStartOverride?: string; 
   scheduledEndOverride?: string;
 }
@@ -63,7 +86,7 @@ export interface Incident {
   userId: string;
   date: string;
   type: 'LATE' | 'ABSENCE' | 'DISCOUNT' | 'BONUS' | 'DAMAGE';
-  amount: number; // Monto a sumar o restar
+  amount: number;
   description: string;
 }
 
