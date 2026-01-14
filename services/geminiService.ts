@@ -55,7 +55,7 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
-    // Inicializar cliente justo antes del uso según reglas de ingeniería senior
+    // Inicializar cliente justo antes del uso para asegurar que tome la última API KEY inyectada
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const parts: Part[] = [];
     
@@ -99,12 +99,19 @@ export const analyzeCheckIn = async (
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     
-    // El error "API key expired" suele ser externo a la lógica de código, 
-    // pero devolvemos un mensaje descriptivo para el usuario.
+    let errorMessage = "Error en el servidor de Inteligencia Artificial.";
+    const errorStr = JSON.stringify(error).toLowerCase();
+    
+    if (errorStr.includes("expired") || errorStr.includes("api_key") || errorStr.includes("invalid")) {
+        errorMessage = "La llave de acceso (API Key) ha expirado o es inválida. Por favor, selecciona una nueva llave desde el botón de configuración.";
+    } else if (errorStr.includes("quota") || errorStr.includes("exhausted")) {
+        errorMessage = "Se ha agotado la cuota gratuita de la IA. Inténtalo de nuevo más tarde o usa otra llave.";
+    }
+
     return { 
         identityMatch: false, 
         dressCodeMatches: false, 
-        description: `Error de API: ${error.message || 'La clave de API podría estar vencida o agotada'}.`, 
+        description: errorMessage, 
         confidence: 0 
     };
   }

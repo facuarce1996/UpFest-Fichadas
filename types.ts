@@ -26,10 +26,15 @@ export const DEFAULT_ROLES = [
   'Mantenimiento'
 ];
 
+export const DAYS_OF_WEEK = [
+  'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'
+];
+
 export interface WorkSchedule {
-  day: string;
-  start: string;
-  end: string;
+  startDay: string;
+  startTime: string;
+  endDay: string;
+  endTime: string;
 }
 
 export interface Location {
@@ -54,7 +59,6 @@ export interface User {
   schedule: WorkSchedule[]; 
   assignedLocations?: string[];
   hourlyRate?: number;
-  // Campos nuevos de nómina
   email?: string;
   phone?: string;
   hireDate?: string;

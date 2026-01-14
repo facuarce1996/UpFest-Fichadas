@@ -1,6 +1,34 @@
 
-import { Location, User, LogEntry, Role, WorkSchedule, Incident } from "../types";
+import { Location, User, LogEntry, Role, WorkSchedule, Incident, DAYS_OF_WEEK } from "../types";
 import { supabase } from "./supabaseClient";
+
+// --- Google Sheets Sync ---
+export const logIncidentToGoogleSheets = async (log: LogEntry, reason: string) => {
+  const DEFAULT_WEBHOOK = 'https://script.google.com/macros/s/AKfycbxFfuiW2oOkPpao2bL0G45mxZR5hZ5-4T2Ko-f04oFPSwEaLaREHyAg7iiEXdCBl8dY/exec';
+  const WEBHOOK_URL = localStorage.getItem('upfest_gsheet_webhook') || DEFAULT_WEBHOOK;
+  const SHEET_NAME = localStorage.getItem('upfest_gsheet_name') || 'Fichadas';
+  
+  if (!WEBHOOK_URL || !WEBHOOK_URL.startsWith('http')) return;
+
+  try {
+    await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' }, 
+      body: JSON.stringify({
+        nombre_hoja: SHEET_NAME,
+        fecha: new Date().toLocaleString('es-AR'),
+        colaborador: log.userName,
+        legajo: log.legajo,
+        tipo_fichada: log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO',
+        incidencia: reason,
+        detalle_ia: log.aiFeedback,
+        sede: log.locationName,
+        foto_url: log.photoEvidence 
+      })
+    });
+  } catch (error) { console.error("Error sincronizando con Google Sheets:", error); }
+};
 
 const encodeOverrides = (feedback: string, start?: string | null, end?: string | null): string => {
   const cleanFeedback = feedback.split(' |||')[0];
@@ -28,15 +56,28 @@ export const isWithinSchedule = (schedules: WorkSchedule[]): boolean => {
   const now = new Date();
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const todayName = days[now.getDay()];
-  const yesterdayName = days[(now.getDay() + 6) % 7];
   const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
   return schedules.some(slot => {
-    if (slot.day === todayName) {
-      if (slot.start <= slot.end) return currentTime >= slot.start && currentTime <= slot.end;
-      else return currentTime >= slot.start;
+    // Si el turno empieza y termina el mismo día
+    if (slot.startDay === slot.endDay) {
+      if (todayName === slot.startDay) {
+        return currentTime >= slot.startTime && currentTime <= slot.endTime;
+      }
+      return false;
+    } 
+    // Si el turno cruza la medianoche
+    else {
+      // Estamos en el día de inicio
+      if (todayName === slot.startDay) {
+        return currentTime >= slot.startTime;
+      }
+      // Estamos en el día de fin
+      if (todayName === slot.endDay) {
+        return currentTime <= slot.endTime;
+      }
+      return false;
     }
-    if (slot.day === yesterdayName && slot.start > slot.end) return currentTime <= slot.end;
-    return false;
   });
 };
 
@@ -216,8 +257,11 @@ export const updateLog = async (logId: string, updates: any) => {
 };
 
 export const deleteLog = async (logId: string) => {
-  const { error } = await supabase.from('logs').delete().eq('id', logId);
-  if (error) throw new Error(error.message);
+  if (!logId) throw new Error("No se proporcionó un ID de fichada válido.");
+  const isNumeric = /^\d+$/.test(String(logId));
+  const finalId = isNumeric ? parseInt(String(logId), 10) : logId;
+  const { error } = await supabase.from('logs').delete().eq('id', finalId);
+  if (error) throw new Error(`Error al eliminar: ${error.message}`);
 };
 
 export const addLog = async (entry: LogEntry) => {
@@ -244,6 +288,13 @@ export const addLog = async (entry: LogEntry) => {
   };
   const { error } = await supabase.from('logs').insert(dbLog);
   if (error) throw new Error(error.message);
+
+  let incidentReason = "NINGUNA";
+  if (entry.dressCodeStatus === 'FAIL') incidentReason = "Vestimenta Incorrecta";
+  else if (entry.identityStatus === 'NO_MATCH') incidentReason = "Identidad No Validada";
+  else if (entry.aiFeedback.toLowerCase().includes("error")) incidentReason = "Error de Sistema";
+
+  logIncidentToGoogleSheets({ ...entry, photoEvidence: photoUrl }, incidentReason);
 };
 
 export const fetchLogs = async (): Promise<LogEntry[]> => {
@@ -257,76 +308,22 @@ export const fetchCompanyLogo = async (): Promise<string | null> => {
   return data ? data.value : null;
 };
 
-// --- Missing functions to fix App.tsx import errors ---
-
-/**
- * Autentica un usuario verificando DNI y contraseña en Supabase.
- * Incluye acceso directo para admin/admin.
- */
 export const authenticateUser = async (dni: string, password: string): Promise<User | null> => {
-  // Validación especial para admin/admin
   if (dni === 'admin' && password === 'admin') {
-    return {
-      id: 'admin_session',
-      dni: 'admin',
-      legajo: 'ADM-001',
-      password: 'admin',
-      name: 'Administrador UpFest',
-      role: 'Admin',
-      dressCode: 'Libre',
-      referenceImage: null,
-      schedule: []
-    };
+    return { id: 'admin_session', dni: 'admin', legajo: 'ADM-001', password: 'admin', name: 'Administrador UpFest', role: 'Admin', dressCode: 'Libre', referenceImage: null, schedule: [] };
   }
-
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('dni', dni)
-    .eq('password', password)
-    .maybeSingle();
-  
+  const { data, error } = await supabase.from('users').select('*').eq('dni', dni).eq('password', password).maybeSingle();
   if (error || !data) return null;
   return mapUserFromDB(data);
 };
 
-/**
- * Obtiene las fichadas del día actual.
- */
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
   return fetchLogsByDateRange(startOfDay, endOfDay);
 };
 
-/**
- * Guarda o actualiza el logo de la empresa en la tabla app_settings.
- */
 export const saveCompanyLogo = async (url: string) => {
-  const { error } = await supabase
-    .from('app_settings')
-    .upsert({ key: 'company_logo', value: url }, { onConflict: 'key' });
-  
+  const { error } = await supabase.from('app_settings').upsert({ key: 'company_logo', value: url }, { onConflict: 'key' });
   if (error) throw new Error(error.message);
-};
-
-/**
- * Calcula la diferencia entre la hora actual y la programada en el calendario.
- */
-export const getScheduleDelayInfo = (schedule: WorkSchedule, type: 'CHECK_IN' | 'CHECK_OUT'): string => {
-  const now = new Date();
-  const targetTime = type === 'CHECK_IN' ? schedule.start : schedule.end;
-  if (!targetTime || targetTime === '--:--') return "";
-  const [h, m] = targetTime.split(':').map(Number);
-  const target = new Date();
-  target.setHours(h, m, 0, 0);
-  const diffMs = now.getTime() - target.getTime();
-  const diffMins = Math.abs(Math.round(diffMs / 60000));
-  if (type === 'CHECK_IN') {
-    return diffMs > 0 ? `Ingreso con ${diffMins} min de retraso` : `Ingreso con ${diffMins} min de antelación`;
-  } else {
-    return diffMs < 0 ? `Salida con ${diffMins} min de antelación` : `Salida con ${diffMins} min de demora`;
-  }
 };
