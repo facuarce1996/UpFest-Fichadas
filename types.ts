@@ -30,6 +30,20 @@ export const DAYS_OF_WEEK = [
   'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'
 ];
 
+// --- Declaraciones Globales para AI Studio ---
+// We define AIStudio as a global interface to match the environment's expected type
+// and avoid redeclaration errors with mismatched modifiers.
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    readonly aistudio: AIStudio;
+  }
+}
+
 export interface WorkSchedule {
   startDay: string;
   startTime: string;
