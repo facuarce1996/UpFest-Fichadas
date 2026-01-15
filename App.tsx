@@ -16,9 +16,10 @@ import {
 } from 'lucide-react';
 
 // --- Helpers ---
+const isAIStudio = !!(window.aistudio && window.aistudio.openSelectKey);
+
 const handleOpenApiKeyDialog = async () => {
-  if (window.aistudio && window.aistudio.openSelectKey) await window.aistudio.openSelectKey();
-  else alert("Configuración solo disponible en AI Studio.");
+  if (isAIStudio) await window.aistudio.openSelectKey();
 };
 
 const getDayName = (dateStr: string) => {
@@ -233,9 +234,11 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <Bell size={18} className={incidentLogs.length > 0 ? 'animate-bounce' : ''}/>
                     <span className="text-[10px] font-black uppercase">Alertas ({incidentLogs.length})</span>
                 </button>
-                <button onClick={handleOpenApiKeyDialog} className="flex-1 md:flex-none bg-slate-900 text-white px-4 md:px-6 py-3 md:py-4 rounded-full flex items-center justify-center gap-3 shadow-xl hover:bg-slate-800 transition-colors">
-                  <Key size={18}/><span className="text-[10px] font-black uppercase">Configurar IA</span>
-                </button>
+                {isAIStudio && (
+                  <button onClick={handleOpenApiKeyDialog} className="flex-1 md:flex-none bg-slate-900 text-white px-4 md:px-6 py-3 md:py-4 rounded-full flex items-center justify-center gap-3 shadow-xl hover:bg-slate-800 transition-colors">
+                    <Key size={18}/><span className="text-[10px] font-black uppercase">Configurar IA</span>
+                  </button>
+                )}
               </div>
            </div>
 
@@ -273,7 +276,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {adminLogs.map(log => {
-                        const isKeyError = log.aiFeedback.includes("Llave") || log.aiFeedback.includes("permisos");
+                        const isKeyError = log.aiFeedback.includes("API_KEY") || log.aiFeedback.includes("Permisos");
                         return (
                           <tr key={log.id} className="hover:bg-white transition-colors group">
                             <td className="p-4 md:p-6 text-center">
@@ -318,9 +321,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               <p className={`text-[9px] md:text-[10px] italic leading-relaxed font-medium ${isKeyError ? 'text-rose-500 font-black' : 'text-slate-500'}`}>
                                 "{log.aiFeedback}"
                               </p>
-                              {isKeyError && (
+                              {(isKeyError && isAIStudio) && (
                                 <button onClick={handleOpenApiKeyDialog} className="mt-2 text-[8px] bg-rose-600 text-white px-2 py-1 rounded font-black uppercase flex items-center gap-1 hover:bg-rose-700 transition-colors">
-                                  <Key size={10}/> Configurar Llave de IA
+                                  <Key size={10}/> Configurar Llave
                                 </button>
                               )}
                             </td>
@@ -727,7 +730,7 @@ const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl, isMo
           )}
         </nav>
         <div className="p-6 md:p-8 border-t space-y-2">
-          {currentUser.role === 'Admin' && (
+          {currentUser.role === 'Admin' && isAIStudio && (
             <button onClick={handleOpenApiKeyDialog} className="w-full flex items-center gap-4 px-6 py-3 rounded-xl md:rounded-[20px] text-[9px] font-black uppercase text-slate-400 border border-dashed hover:border-orange-500 transition-colors">
               <Key size={18} /> Llave AI
             </button>

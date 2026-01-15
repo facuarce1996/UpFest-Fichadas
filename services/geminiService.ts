@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type, Part } from "@google/genai";
 import { ValidationResult } from "../types";
 
@@ -32,19 +31,19 @@ const validationSchema = {
   properties: {
     identityMatch: {
       type: Type.BOOLEAN,
-      description: "Verdadero si el rostro en la foto actual coincide con el de la foto de referencia.",
+      description: "Verdadero si el rostro coincide con la referencia.",
     },
     dressCodeMatches: {
       type: Type.BOOLEAN,
-      description: "Verdadero si la vestimenta cumple con el código descrito.",
+      description: "Verdadero si la vestimenta cumple el código.",
     },
     description: {
       type: Type.STRING,
-      description: "Breve resumen del análisis.",
+      description: "Resumen del análisis.",
     },
     confidence: {
       type: Type.NUMBER,
-      description: "Nivel de confianza entre 0 y 1.",
+      description: "Confianza entre 0 y 1.",
     },
   },
   required: ["identityMatch", "dressCodeMatches", "description", "confidence"],
@@ -56,7 +55,6 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
-    // FIX: Using 'gemini-3-flash-preview' for robust multimodal analysis and improved reliability.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const parts: Part[] = [];
     
@@ -69,10 +67,10 @@ export const analyzeCheckIn = async (
         }
     }
 
-    const prompt = `Supervisor UpFest: Analiza esta fichada.
-      1. ROSTRO: ${refBase64 ? 'Compara con la foto de referencia.' : 'Verifica rostro humano visible.'}
+    const prompt = `Analiza esta fichada de UpFest:
+      1. ROSTRO: ${refBase64 ? 'Compara con la referencia adjunta.' : 'Verifica rostro humano visible.'}
       2. VESTIMENTA: ¿Cumple con "${dressCodeDescription || 'Uniforme estándar'}"?
-      Responde SOLO en JSON.`;
+      Responde estrictamente en formato JSON.`;
 
     if (refBase64) {
       parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
@@ -91,19 +89,18 @@ export const analyzeCheckIn = async (
       },
     });
 
-    // FIX: Accessing .text as a property, not a method, as per SDK guidelines.
     const resultText = response.text?.trim();
     if (!resultText) throw new Error("Respuesta vacía");
     
     return JSON.parse(resultText);
   } catch (error: any) {
-    console.error("AI Error:", error);
+    console.error("AI Analysis Error:", error);
     
     let msg = "Error en el servidor de Inteligencia Artificial.";
     if (error.message?.includes("403") || error.message?.includes("API_KEY_INVALID") || error.message?.includes("permission")) {
-        msg = "Error: La Llave de IA no tiene permisos o es inválida.";
+        msg = "Error de Permisos: Revisa la API_KEY en las variables de entorno de tu servidor.";
     } else if (error.message?.includes("429")) {
-        msg = "Error: Límite de uso excedido (Cuota).";
+        msg = "Error: Límite de cuota de IA excedido.";
     }
 
     return { 
