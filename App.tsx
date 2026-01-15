@@ -313,7 +313,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                           </td>
                           <td className="p-4 md:p-6 text-center">
                             <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-2 md:p-3 text-slate-200 hover:text-red-500 transition-all">
-                              {isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={18}/}
+                              {isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={18}/>}
                             </button>
                           </td>
                         </tr>
@@ -494,7 +494,6 @@ const AdminDashboard = () => {
         </button>
       </div>
       
-      {/* Tabla responsiva para desktop, cards para mobile */}
       <div className="hidden md:block bg-white rounded-[32px] border overflow-hidden shadow-sm">
          <div className="overflow-x-auto"><table className="w-full text-left border-collapse">
            <thead><tr className="bg-slate-50 border-b"><th className="p-6 text-[10px] font-black uppercase">Colaborador</th><th className="p-6 text-[10px] font-black uppercase">DNI</th><th className="p-6 text-[10px] font-black uppercase">Rol</th><th className="p-6 text-[10px] font-black uppercase">Sedes</th><th className="p-6 text-right">Acciones</th></tr></thead>
@@ -692,7 +691,6 @@ const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl, isMo
 
   return (
     <>
-      {/* Overlay para mobile */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] md:hidden animate-in fade-in duration-300"
@@ -751,7 +749,6 @@ export default function App() {
         setIsMobileMenuOpen={setIsMobileMenuOpen}
       />
       <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        {/* Encabezado Fijo para Mobile - Rediseñado para Sticky con Glassmorphism */}
         <header className="md:hidden bg-white/80 backdrop-blur-md border-b px-6 py-4 flex items-center justify-between z-50 sticky top-0">
           <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 -ml-2 text-slate-600 hover:bg-slate-100/50 rounded-xl transition-colors">
             <Menu size={24}/>
@@ -764,7 +761,7 @@ export default function App() {
         </header>
 
         <main className="flex-1 overflow-y-auto scroll-smooth">
-          <div className="pb-20 md:pb-0"> {/* Padding bottom para navegación móvil */}
+          <div className="pb-20 md:pb-0">
             {activeTab === 'clock' && <ClockView user={currentUser} onLogout={() => setCurrentUser(null)} />}
             {activeTab === 'admin' && <AdminDashboard />}
             {activeTab === 'locations' && <LocationsDashboard />}
