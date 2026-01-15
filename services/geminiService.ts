@@ -21,7 +21,7 @@ const getBase64FromUrl = async (url: string): Promise<string | null> => {
       reader.readAsDataURL(blob);
     });
   } catch (error) {
-    console.warn("No se pudo recuperar la imagen de referencia (posible error de CORS):", error);
+    console.warn("No se pudo recuperar la imagen de referencia:", error);
     return null;
   }
 };
@@ -31,19 +31,19 @@ const validationSchema = {
   properties: {
     identityMatch: {
       type: Type.BOOLEAN,
-      description: "Verdadero si la persona en la foto coincide con la referencia. Si no hay referencia, devolver true.",
+      description: "Verdadero si el rostro en la foto actual coincide con el de la foto de referencia. Si no hay referencia, validar que hay un rostro humano presente.",
     },
     dressCodeMatches: {
       type: Type.BOOLEAN,
-      description: "Indica si la vestimenta coincide con el código requerido.",
+      description: "Verdadero si la vestimenta del colaborador cumple con los requisitos descritos.",
     },
     description: {
       type: Type.STRING,
-      description: "Una breve explicación en español sobre la verificación.",
+      description: "Explicación breve y profesional de los resultados del análisis.",
     },
     confidence: {
       type: Type.NUMBER,
-      description: "Puntaje de confianza entre 0 y 1.",
+      description: "Nivel de confianza de la IA entre 0 y 1.",
     },
   },
   required: ["identityMatch", "dressCodeMatches", "description", "confidence"],
@@ -55,7 +55,7 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
-    // Inicializar cliente justo antes del uso para asegurar que tome la última API KEY inyectada
+    // Inicialización del cliente con la clave del entorno
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const parts: Part[] = [];
     
@@ -68,12 +68,14 @@ export const analyzeCheckIn = async (
         }
     }
 
-    const prompt = `Actúa como oficial de seguridad de UpFest. Analiza la imagen actual.
-      REGLAS:
-      1. Vestimenta requerida: "${dressCodeDescription || 'Ropa formal de trabajo'}".
-      2. Identidad: ${refBase64 ? 'Compara con la foto de referencia adjunta para confirmar que es la misma persona.' : 'No hay referencia, valida solo presencia de rostro.'}
+    const prompt = `Actúa como un supervisor de seguridad y RRHH para la empresa UpFest. 
+      Analiza la foto actual del colaborador que está realizando su fichada.
       
-      RESPONDE SOLO EN JSON.`;
+      TAREAS:
+      1. Rostro: ${refBase64 ? 'Compara el rostro de la foto actual con la foto de referencia adjunta para verificar identidad.' : 'Verifica que la persona en la foto es un humano real con el rostro visible.'}
+      2. Vestimenta: Comprueba si cumple con el siguiente código de vestimenta: "${dressCodeDescription || 'Ropa formal oscura'}".
+      
+      IMPORTANTE: Devuelve la respuesta estrictamente en formato JSON siguiendo el esquema proporcionado.`;
 
     if (refBase64) {
       parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
@@ -93,50 +95,30 @@ export const analyzeCheckIn = async (
     });
 
     const resultText = response.text?.trim();
-    if (!resultText) throw new Error("Sin respuesta del modelo");
+    if (!resultText) throw new Error("Respuesta vacía de la IA");
     
     return JSON.parse(resultText);
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
+    console.error("Detalle del Error de IA:", error);
     
-    let errorMessage = "Error en el servidor de Inteligencia Artificial.";
-    const errorStr = JSON.stringify(error).toLowerCase();
+    let userFriendlyMsg = "Error técnico en la validación de IA.";
     
-    if (errorStr.includes("expired") || errorStr.includes("api_key") || errorStr.includes("invalid")) {
-        errorMessage = "La llave de acceso (API Key) ha expirado o es inválida. Por favor, selecciona una nueva llave desde el botón de configuración.";
-    } else if (errorStr.includes("quota") || errorStr.includes("exhausted")) {
-        errorMessage = "Se ha agotado la cuota gratuita de la IA. Inténtalo de nuevo más tarde o usa otra llave.";
+    // Diagnóstico basado en el mensaje de error del SDK
+    if (!process.env.API_KEY) {
+        userFriendlyMsg = "Error: Falta configurar la Llave de IA (API Key).";
+    } else if (error.message?.includes("403") || error.message?.includes("API_KEY_INVALID")) {
+        userFriendlyMsg = "Error: La Llave de IA es inválida o no tiene permisos.";
+    } else if (error.message?.includes("429") || error.message?.includes("quota")) {
+        userFriendlyMsg = "Error: Se ha excedido el límite de uso de la IA.";
+    } else if (error.message?.includes("safety")) {
+        userFriendlyMsg = "Error: La imagen fue bloqueada por filtros de seguridad.";
     }
 
     return { 
         identityMatch: false, 
         dressCodeMatches: false, 
-        description: errorMessage, 
+        description: userFriendlyMsg, 
         confidence: 0 
     };
-  }
-};
-
-export const generateIncidentExplanation = async (
-  userName: string,
-  scheduledIn: string,
-  realIn: string,
-  scheduledOut: string,
-  realOut: string
-): Promise<string> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Redacta una breve nota de RRHH para ${userName}. Programado: ${scheduledIn}-${scheduledOut}. Real: ${realIn}-${realOut}.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: { temperature: 0.5 }
-    });
-
-    return response.text || "Sin detalle.";
-  } catch (error) {
-    console.error("Error en generateIncidentExplanation:", error);
-    return "No se pudo generar explicación.";
   }
 };

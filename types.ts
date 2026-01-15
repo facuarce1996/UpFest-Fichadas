@@ -1,4 +1,5 @@
 
+
 export type Role = string;
 
 export const DEFAULT_ROLES = [
@@ -40,8 +41,8 @@ declare global {
   }
 
   interface Window {
-    // FIX: Removed 'readonly' modifier to match the existing global definition and resolve the "identical modifiers" error.
-    aistudio: AIStudio;
+    // FIX: Restored 'readonly' modifier to match the platform's global definition of aistudio and resolve the "identical modifiers" error.
+    readonly aistudio: AIStudio;
   }
 }
 

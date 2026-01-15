@@ -266,8 +266,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Fecha</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Hora</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Tipo</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">IA Validación</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase">Descripción</th>
+                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Rostro</th>
+                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Vestimenta</th>
+                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase">Descripción IA</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Acción</th>
                       </tr>
                     </thead>
@@ -294,20 +295,22 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               {log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'}
                             </span>
                           </td>
-                          <td className="p-4 md:p-6 text-center space-y-1">
+                          <td className="p-4 md:p-6 text-center">
                             {log.identityStatus === 'MATCH' ? (
-                              <span className="block text-[8px] font-black text-emerald-600">ID OK</span>
+                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-emerald-50 text-emerald-600 border border-emerald-100 whitespace-nowrap">IDENTIDAD OK</span>
                             ) : (
-                              <span className="block text-[8px] font-black text-rose-600">ID FAIL</span>
+                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-rose-50 text-rose-600 border border-rose-100 whitespace-nowrap">ID FALLIDA</span>
                             )}
+                          </td>
+                          <td className="p-4 md:p-6 text-center">
                             {log.dressCodeStatus === 'PASS' ? (
-                              <span className="block text-[8px] font-black text-emerald-600">DRESS OK</span>
+                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-emerald-50 text-emerald-600 border border-emerald-100 whitespace-nowrap">VESTIMENTA OK</span>
                             ) : (
-                              <span className="block text-[8px] font-black text-rose-600">DRESS FAIL</span>
+                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-rose-50 text-rose-600 border border-rose-100 whitespace-nowrap">VEST. ERROR</span>
                             )}
                           </td>
                           <td className="p-4 md:p-6 max-w-[200px] md:max-w-xs">
-                            <p className="text-[9px] md:text-[10px] italic text-slate-500 leading-relaxed font-medium">
+                            <p className={`text-[9px] md:text-[10px] italic leading-relaxed font-medium ${log.aiFeedback.includes("Error") ? 'text-rose-500 font-bold' : 'text-slate-500'}`}>
                               "{log.aiFeedback}"
                             </p>
                           </td>
