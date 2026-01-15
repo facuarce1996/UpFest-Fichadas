@@ -258,69 +258,80 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
            <div className="relative group">
               <div className="overflow-x-auto bg-slate-50/50 rounded-[16px] md:rounded-[24px] border border-slate-100 scrollbar-hide md:scrollbar-default">
-                  <table className="w-full text-left min-w-[1000px] border-collapse">
+                  <table className="w-full text-left min-w-[1200px] border-collapse">
                     <thead>
                       <tr className="bg-[#0f172a] text-white">
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Foto</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase">Colaborador</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Fecha</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Hora</th>
+                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Fecha / Hora</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Tipo</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Rostro</th>
+                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center border-l border-white/10">Rostro</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Vestimenta</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase">Descripción IA</th>
                         <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Acción</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {adminLogs.map(log => (
-                        <tr key={log.id} className="hover:bg-white transition-colors group">
-                          <td className="p-4 md:p-6 text-center">
-                            <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-12 h-12 md:w-14 md:h-14 mx-auto rounded-lg md:rounded-xl overflow-hidden border cursor-zoom-in shadow-sm transition-all shrink-0">
-                              {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <UserIcon className="m-auto mt-4 text-slate-300" />}
-                            </div>
-                          </td>
-                          <td className="p-4 md:p-6">
-                            <span className="block font-black text-slate-900 text-xs md:text-sm uppercase leading-tight">{log.userName}</span>
-                            <span className="text-[8px] md:text-[9px] text-slate-400 font-bold uppercase tracking-wider">Lgj: {log.legajo}</span>
-                          </td>
-                          <td className="p-4 md:p-6 text-center text-[10px] md:text-xs font-bold text-slate-600 font-mono">
-                            {getFormattedDate(log.timestamp)}<br/><span className="text-[8px] text-slate-400 uppercase">{getDayName(log.timestamp).substring(0,3)}</span>
-                          </td>
-                          <td className="p-4 md:p-6 text-center text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase">
-                            {new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()}
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                            <span className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-[8px] md:text-[9px] font-black uppercase border ${log.type === 'CHECK_IN' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                              {log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'}
-                            </span>
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                            {log.identityStatus === 'MATCH' ? (
-                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-emerald-50 text-emerald-600 border border-emerald-100 whitespace-nowrap">IDENTIDAD OK</span>
-                            ) : (
-                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-rose-50 text-rose-600 border border-rose-100 whitespace-nowrap">ID FALLIDA</span>
-                            )}
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                            {log.dressCodeStatus === 'PASS' ? (
-                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-emerald-50 text-emerald-600 border border-emerald-100 whitespace-nowrap">VESTIMENTA OK</span>
-                            ) : (
-                              <span className="inline-block px-3 py-1 rounded-full text-[8px] font-black bg-rose-50 text-rose-600 border border-rose-100 whitespace-nowrap">VEST. ERROR</span>
-                            )}
-                          </td>
-                          <td className="p-4 md:p-6 max-w-[200px] md:max-w-xs">
-                            <p className={`text-[9px] md:text-[10px] italic leading-relaxed font-medium ${log.aiFeedback.includes("Error") ? 'text-rose-500 font-bold' : 'text-slate-500'}`}>
-                              "{log.aiFeedback}"
-                            </p>
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                            <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-2 md:p-3 text-slate-200 hover:text-red-500 transition-all">
-                              {isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={18}/>}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {adminLogs.map(log => {
+                        const isKeyError = log.aiFeedback.includes("Llave") || log.aiFeedback.includes("permisos");
+                        return (
+                          <tr key={log.id} className="hover:bg-white transition-colors group">
+                            <td className="p-4 md:p-6 text-center">
+                              <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-12 h-12 md:w-14 md:h-14 mx-auto rounded-lg md:rounded-xl overflow-hidden border cursor-zoom-in shadow-sm transition-all shrink-0">
+                                {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <UserIcon className="m-auto mt-4 text-slate-300" />}
+                              </div>
+                            </td>
+                            <td className="p-4 md:p-6">
+                              <span className="block font-black text-slate-900 text-xs md:text-sm uppercase leading-tight">{log.userName}</span>
+                              <span className="text-[8px] md:text-[9px] text-slate-400 font-bold uppercase tracking-wider">Lgj: {log.legajo}</span>
+                            </td>
+                            <td className="p-4 md:p-6 text-center">
+                                <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span className="block text-[8px] text-slate-400 uppercase font-bold">{getFormattedDate(log.timestamp)}</span>
+                            </td>
+                            <td className="p-4 md:p-6 text-center">
+                              <span className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-[8px] md:text-[9px] font-black uppercase border ${log.type === 'CHECK_IN' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                {log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'}
+                              </span>
+                            </td>
+                            <td className="p-4 md:p-6 text-center border-l border-slate-100">
+                              <div className="flex flex-col items-center gap-1">
+                                <div className={`p-1.5 rounded-lg ${log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                  <UserCheck size={14}/>
+                                </div>
+                                <span className={`text-[8px] font-black uppercase ${log.identityStatus === 'MATCH' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {log.identityStatus === 'MATCH' ? 'Válido' : 'Fallo'}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-4 md:p-6 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <div className={`p-1.5 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                  <Shirt size={14}/>
+                                </div>
+                                <span className={`text-[8px] font-black uppercase ${log.dressCodeStatus === 'PASS' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {log.dressCodeStatus === 'PASS' ? 'Correcto' : 'Error'}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="p-4 md:p-6 max-w-[250px] md:max-w-xs">
+                              <p className={`text-[9px] md:text-[10px] italic leading-relaxed font-medium ${isKeyError ? 'text-rose-500 font-black' : 'text-slate-500'}`}>
+                                "{log.aiFeedback}"
+                              </p>
+                              {isKeyError && (
+                                <button onClick={handleOpenApiKeyDialog} className="mt-2 text-[8px] bg-rose-600 text-white px-2 py-1 rounded font-black uppercase flex items-center gap-1 hover:bg-rose-700 transition-colors">
+                                  <Key size={10}/> Configurar Llave de IA
+                                </button>
+                              )}
+                            </td>
+                            <td className="p-4 md:p-6 text-center">
+                              <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-2 md:p-3 text-slate-200 hover:text-red-500 transition-all">
+                                {isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={18}/>}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
               </div>

@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, Type, Part } from "@google/genai";
 import { ValidationResult } from "../types";
 
@@ -31,19 +32,19 @@ const validationSchema = {
   properties: {
     identityMatch: {
       type: Type.BOOLEAN,
-      description: "Verdadero si el rostro en la foto actual coincide con el de la foto de referencia. Si no hay referencia, validar que hay un rostro humano presente.",
+      description: "Verdadero si el rostro en la foto actual coincide con el de la foto de referencia.",
     },
     dressCodeMatches: {
       type: Type.BOOLEAN,
-      description: "Verdadero si la vestimenta del colaborador cumple con los requisitos descritos.",
+      description: "Verdadero si la vestimenta cumple con el código descrito.",
     },
     description: {
       type: Type.STRING,
-      description: "Explicación breve y profesional de los resultados del análisis.",
+      description: "Breve resumen del análisis.",
     },
     confidence: {
       type: Type.NUMBER,
-      description: "Nivel de confianza de la IA entre 0 y 1.",
+      description: "Nivel de confianza entre 0 y 1.",
     },
   },
   required: ["identityMatch", "dressCodeMatches", "description", "confidence"],
@@ -55,7 +56,7 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   try {
-    // Inicialización del cliente con la clave del entorno
+    // FIX: Using 'gemini-3-flash-preview' for robust multimodal analysis and improved reliability.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const parts: Part[] = [];
     
@@ -68,14 +69,10 @@ export const analyzeCheckIn = async (
         }
     }
 
-    const prompt = `Actúa como un supervisor de seguridad y RRHH para la empresa UpFest. 
-      Analiza la foto actual del colaborador que está realizando su fichada.
-      
-      TAREAS:
-      1. Rostro: ${refBase64 ? 'Compara el rostro de la foto actual con la foto de referencia adjunta para verificar identidad.' : 'Verifica que la persona en la foto es un humano real con el rostro visible.'}
-      2. Vestimenta: Comprueba si cumple con el siguiente código de vestimenta: "${dressCodeDescription || 'Ropa formal oscura'}".
-      
-      IMPORTANTE: Devuelve la respuesta estrictamente en formato JSON siguiendo el esquema proporcionado.`;
+    const prompt = `Supervisor UpFest: Analiza esta fichada.
+      1. ROSTRO: ${refBase64 ? 'Compara con la foto de referencia.' : 'Verifica rostro humano visible.'}
+      2. VESTIMENTA: ¿Cumple con "${dressCodeDescription || 'Uniforme estándar'}"?
+      Responde SOLO en JSON.`;
 
     if (refBase64) {
       parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
@@ -94,30 +91,25 @@ export const analyzeCheckIn = async (
       },
     });
 
+    // FIX: Accessing .text as a property, not a method, as per SDK guidelines.
     const resultText = response.text?.trim();
-    if (!resultText) throw new Error("Respuesta vacía de la IA");
+    if (!resultText) throw new Error("Respuesta vacía");
     
     return JSON.parse(resultText);
   } catch (error: any) {
-    console.error("Detalle del Error de IA:", error);
+    console.error("AI Error:", error);
     
-    let userFriendlyMsg = "Error técnico en la validación de IA.";
-    
-    // Diagnóstico basado en el mensaje de error del SDK
-    if (!process.env.API_KEY) {
-        userFriendlyMsg = "Error: Falta configurar la Llave de IA (API Key).";
-    } else if (error.message?.includes("403") || error.message?.includes("API_KEY_INVALID")) {
-        userFriendlyMsg = "Error: La Llave de IA es inválida o no tiene permisos.";
-    } else if (error.message?.includes("429") || error.message?.includes("quota")) {
-        userFriendlyMsg = "Error: Se ha excedido el límite de uso de la IA.";
-    } else if (error.message?.includes("safety")) {
-        userFriendlyMsg = "Error: La imagen fue bloqueada por filtros de seguridad.";
+    let msg = "Error en el servidor de Inteligencia Artificial.";
+    if (error.message?.includes("403") || error.message?.includes("API_KEY_INVALID") || error.message?.includes("permission")) {
+        msg = "Error: La Llave de IA no tiene permisos o es inválida.";
+    } else if (error.message?.includes("429")) {
+        msg = "Error: Límite de uso excedido (Cuota).";
     }
 
     return { 
         identityMatch: false, 
         dressCodeMatches: false, 
-        description: userFriendlyMsg, 
+        description: msg, 
         confidence: 0 
     };
   }
