@@ -40,6 +40,7 @@ declare global {
   }
 
   interface Window {
+    // FIX: Added 'readonly' modifier to 'aistudio' to match the existing global definition and resolve the "identical modifiers" error.
     readonly aistudio: AIStudio;
   }
 }
