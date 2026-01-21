@@ -59,20 +59,16 @@ export const isWithinSchedule = (schedules: WorkSchedule[]): boolean => {
   const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
   return schedules.some(slot => {
-    // Si el turno empieza y termina el mismo día
     if (slot.startDay === slot.endDay) {
       if (todayName === slot.startDay) {
         return currentTime >= slot.startTime && currentTime <= slot.endTime;
       }
       return false;
     } 
-    // Si el turno cruza la medianoche
     else {
-      // Estamos en el día de inicio
       if (todayName === slot.startDay) {
         return currentTime >= slot.startTime;
       }
-      // Estamos en el día de fin
       if (todayName === slot.endDay) {
         return currentTime <= slot.endTime;
       }
@@ -124,13 +120,7 @@ const mapUserFromDB = (u: any): User => ({
   dressCode: u.dress_code || '',
   referenceImage: u.reference_image || null,
   schedule: u.schedule || [],
-  assignedLocations: u.assigned_locations || [],
-  hourlyRate: u.hourly_rate || 0,
-  email: u.email || '',
-  phone: u.phone || '',
-  hireDate: u.hire_date || '',
-  workType: u.work_type || '',
-  address: u.address || ''
+  assignedLocations: u.assigned_locations || []
 });
 
 const mapLocationFromDB = (l: any): Location => ({
@@ -187,14 +177,9 @@ export const saveUser = async (user: User) => {
       dress_code: user.dressCode,
       reference_image: referenceImageUrl,
       schedule: user.schedule || [],
-      email: user.email,
-      phone: user.phone,
-      hire_date: user.hireDate,
-      work_type: user.workType,
-      address: user.address,
       assigned_locations: user.assignedLocations || []
     };
-    if (user.id && user.id !== "" && user.id !== "0") {
+    if (user.id && user.id !== "" && user.id !== "0" && user.id !== "admin_session") {
       const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
       if (error) throw new Error(error.message);
     } else {

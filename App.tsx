@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Role, Location, User, LogEntry, WorkSchedule, Incident, ValidationResult, DEFAULT_ROLES, DAYS_OF_WEEK
 } from './types';
@@ -12,7 +12,7 @@ import {
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -68,107 +68,79 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const loadData = (showLoading = false) => {
+  const loadData = useCallback(async (showLoading = false, start?: string, end?: string) => {
     if (showLoading) setIsFiltering(true);
+    const sDate = start !== undefined ? start : filterStartDate;
+    const eDate = end !== undefined ? end : filterEndDate;
     const deviceLocId = localStorage.getItem('upfest_terminal_location_id');
 
-    const logsPromise = (filterStartDate && filterEndDate) 
-      ? fetchLogsByDateRange(new Date(filterStartDate + 'T00:00:00'), new Date(filterEndDate + 'T23:59:59'))
-      : fetchLogs();
+    try {
+      const logsPromise = (sDate && eDate) 
+        ? fetchLogsByDateRange(new Date(sDate + 'T00:00:00'), new Date(eDate + 'T23:59:59'))
+        : fetchLogs();
 
-    Promise.all([
-      fetchLocations(),
-      logsPromise,
-      fetchUsers()
-    ]).then(([allLocs, logs, users]) => {
+      const [allLocs, logs, users] = await Promise.all([
+        fetchLocations(),
+        logsPromise,
+        fetchUsers()
+      ]);
+
       setLocations(allLocs);
       setAllUsers(users);
       if (user.role === 'Admin') setAdminLogs(logs);
       setUserTodayLogs(logs.filter(l => l.userId === user.id && new Date(l.timestamp).toDateString() === new Date().toDateString()));
       if (deviceLocId) setDeviceLocation(allLocs.find(l => l.id === deviceLocId) || null);
-    }).catch(err => {
+    } catch (err) {
       console.error("Error al cargar datos del monitor:", err);
-    }).finally(() => {
+    } finally {
       if (showLoading) setIsFiltering(false);
-    });
-  };
+    }
+  }, [user.id, user.role, filterStartDate, filterEndDate]);
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(() => {
-        if (!filterStartDate && !filterEndDate) loadData();
-    }, 45000);
+    const interval = setInterval(() => { if (!filterStartDate && !filterEndDate) loadData(); }, 30000);
     return () => clearInterval(interval);
-  }, [user.id, filterStartDate, filterEndDate]);
+  }, [loadData, filterStartDate, filterEndDate]);
 
-  // --- Quick Date Handlers ---
   const applyQuickFilter = (type: 'today' | 'yesterday' | 'week' | 'month') => {
     const today = new Date();
-    const start = new Date();
-    const end = new Date();
-    
+    let start = new Date();
+    let end = new Date();
     setActiveQuickFilter(type);
-
     switch(type) {
-      case 'today':
-        break;
-      case 'yesterday':
-        start.setDate(today.getDate() - 1);
-        end.setDate(today.getDate() - 1);
-        break;
-      case 'week':
-        start.setDate(today.getDate() - 7);
-        break;
-      case 'month':
-        start.setDate(1);
-        break;
+      case 'today': break;
+      case 'yesterday': start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); break;
+      case 'week': start.setDate(today.getDate() - 7); break;
+      case 'month': start.setDate(1); break;
     }
-
     const formatDate = (d: Date) => d.toISOString().split('T')[0];
-    setFilterStartDate(formatDate(start));
-    setFilterEndDate(formatDate(end));
-    
-    // Forzamos la carga inmediata
-    setTimeout(() => loadData(true), 50);
+    const s = formatDate(start);
+    const e = formatDate(end);
+    setFilterStartDate(s);
+    setFilterEndDate(e);
+    loadData(true, s, e);
   };
 
-  const handleApplyFilter = () => {
-    if (!filterStartDate || !filterEndDate) {
-        alert("Por favor selecciona ambas fechas.");
-        return;
-    }
-    setActiveQuickFilter(null);
-    loadData(true);
-  };
-
-  const handleClearFilter = () => {
-    setFilterStartDate('');
-    setFilterEndDate('');
-    setActiveQuickFilter(null);
-    setTimeout(() => loadData(true), 100);
-  };
+  const handleApplyFilter = () => { if (filterStartDate && filterEndDate) { setActiveQuickFilter(null); loadData(true); } };
+  const handleClearFilter = () => { setFilterStartDate(''); setFilterEndDate(''); setActiveQuickFilter(null); loadData(true, '', ''); };
 
   const handleExportExcel = () => {
     if (adminLogs.length === 0) return alert("No hay datos para exportar.");
-    const dataToExport = adminLogs.map(log => {
-      const staffUser = allUsers.find(u => u.id === log.userId);
-      const logDate = new Date(log.timestamp);
-      return {
-        'ID': log.id,
-        'DNI': staffUser?.dni || 'N/A',
-        'NOMBRE': log.userName,
-        'FECHA': logDate.toLocaleDateString('es-AR'),
-        'HORA': logDate.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-        'TIPO': log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO',
-        'VALIDACION ROSTRO': log.identityStatus === 'MATCH' ? 'Válido' : 'Fallo',
-        'VALIDACION VESTIMENTA': log.dressCodeStatus === 'PASS' ? 'Correcto' : 'Error',
-        'DESCRIPCION IA': log.aiFeedback
-      };
-    });
+    const dataToExport = adminLogs.map(log => ({
+      'ID': log.id,
+      'LEGAJO': log.legajo,
+      'NOMBRE': log.userName,
+      'FECHA': new Date(log.timestamp).toLocaleDateString('es-AR'),
+      'HORA': new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+      'TIPO': log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO',
+      'SEDE': log.locationName,
+      'DESCRIPCION IA': log.aiFeedback
+    }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Fichadas");
-    XLSX.writeFile(wb, `UpFest_Reporte_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `Reporte_UpFest_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   useEffect(() => {
@@ -176,19 +148,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     async function startCamera() {
       if (cameraActive) {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } } 
-          });
-          if (active) {
-            streamRef.current = stream;
-            if (videoRef.current) videoRef.current.srcObject = stream;
-          } else {
-            stream.getTracks().forEach(t => t.stop());
-          }
-        } catch (err) {
-          console.error("Camera error:", err);
-          if (active) { setCameraActive(false); }
-        }
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } } });
+          if (active && videoRef.current) { streamRef.current = stream; videoRef.current.srcObject = stream; }
+          else { stream.getTracks().forEach(t => t.stop()); }
+        } catch (err) { if (active) setCameraActive(false); }
       } else { stopCamera(); }
     }
     startCamera();
@@ -196,24 +159,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   }, [cameraActive]);
 
   const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
     if (videoRef.current) videoRef.current.srcObject = null;
   };
-
-  useEffect(() => {
-    let interval: number;
-    if (successAction && successAction.countdown > 0) {
-      interval = window.setInterval(() => {
-        setSuccessAction(prev => prev ? { ...prev, countdown: prev.countdown - 1 } : null);
-      }, 1000);
-    } else if (successAction && successAction.countdown === 0) {
-      onLogout();
-    }
-    return () => clearInterval(interval);
-  }, [successAction, onLogout]);
 
   const handleClockAction = async () => {
     if (!photo) return;
@@ -233,20 +181,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const lastLog = await fetchLastLog(user.id);
       const type = (!lastLog || lastLog.type === 'CHECK_OUT') ? 'CHECK_IN' : 'CHECK_OUT';
       const newLog: LogEntry = {
-        id: '',
-        userId: user.id,
-        userName: user.name,
-        legajo: user.legajo,
-        timestamp: new Date().toISOString(),
-        type,
-        locationId: deviceLocation?.id || 'manual',
-        locationName: deviceLocation?.name || 'Manual',
-        locationStatus: locStatus,
-        dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL',
-        identityStatus: iaResult.identityMatch ? 'MATCH' : 'NO_MATCH',
-        photoEvidence: photo,
-        aiFeedback: iaResult.description,
-        scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
+        id: '', userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
+        locationId: deviceLocation?.id || 'manual', locationName: deviceLocation?.name || 'Manual', locationStatus: locStatus,
+        dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL', identityStatus: iaResult.identityMatch ? 'MATCH' : 'NO_MATCH',
+        photoEvidence: photo, aiFeedback: iaResult.description, scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
       };
       await addLog(newLog);
       setPhoto(null);
@@ -269,7 +207,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   };
 
   const handleDeleteLog = async (logId: string) => {
-    if (!confirm('¿BORRAR FICHADA?')) return;
+    if (!confirm('¿CONFIRMAS BORRAR ESTA FICHADA?')) return;
     setIsDeleting(logId);
     try { await deleteLog(logId); setAdminLogs(prev => prev.filter(l => l.id !== logId)); } 
     catch (e: any) { alert(e.message); } finally { setIsDeleting(null); }
@@ -288,7 +226,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 <p className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest">En vivo - UpFest Control</p>
               </div>
               <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto justify-center">
-                <button onClick={handleExportExcel} className="flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center gap-3 transition-all hover:bg-emerald-100">
+                <button onClick={handleExportExcel} className="flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center gap-3 transition-all hover:bg-emerald-100 shadow-sm">
                     <Download size={18}/><span className="text-[10px] font-black uppercase">Exportar Excel</span>
                 </button>
                 <button onClick={() => setShowAlerts(!showAlerts)} className={`flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full border flex items-center justify-center gap-3 transition-all ${incidentLogs.length > 0 ? 'bg-red-50 border-red-200 text-red-600 shadow-lg shadow-red-100' : 'bg-slate-50 text-slate-400'}`}>
@@ -297,112 +235,96 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               </div>
            </div>
 
-           {/* --- PANEL DE FILTROS RÁPIDOS Y CALENDARIO --- */}
-           <div className="mb-8 p-6 bg-slate-50 rounded-[24px] border border-slate-100 space-y-6">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mr-2">Filtros Rápidos:</span>
+           <div className="mb-8 p-6 md:p-8 bg-slate-50/80 rounded-[28px] md:rounded-[40px] border border-slate-100 space-y-8">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-2 flex items-center gap-2"><Filter size={14}/> Filtros Rápidos:</span>
                 {[
                     { id: 'today', label: 'Hoy', icon: Clock },
                     { id: 'yesterday', label: 'Ayer', icon: RotateCcw },
                     { id: 'week', label: '7 Días', icon: Calendar },
                     { id: 'month', label: 'Este Mes', icon: Briefcase }
                 ].map(f => (
-                    <button 
-                        key={f.id} 
-                        onClick={() => applyQuickFilter(f.id as any)}
-                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border ${activeQuickFilter === f.id ? 'bg-orange-600 border-orange-600 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-200 text-slate-500 hover:border-orange-300'}`}
-                    >
-                        <f.icon size={12}/> {f.label}
+                    <button key={f.id} onClick={() => applyQuickFilter(f.id as any)} className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all border-2 ${activeQuickFilter === f.id ? 'bg-orange-600 border-orange-600 text-white shadow-xl shadow-orange-200' : 'bg-white border-slate-100 text-slate-500 hover:border-orange-400'}`}>
+                        <f.icon size={14}/> {f.label}
                     </button>
                 ))}
+                {(filterStartDate || filterEndDate) && (
+                    <button onClick={handleClearFilter} className="px-5 py-2.5 bg-rose-50 text-rose-600 border-2 border-rose-100 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-rose-100 transition-colors"><XOctagon size={14}/> Limpiar</button>
+                )}
               </div>
-
-              <div className="flex flex-col md:flex-row items-end gap-4 border-t pt-6">
-                <div className="flex-1 w-full space-y-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar size={12}/> Fecha Inicio</label>
-                    <input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl font-bold text-xs outline-none focus:border-orange-500 transition-colors cursor-pointer" />
+              <div className="grid grid-cols-1 md:grid-cols-11 items-end gap-4 border-t border-slate-200 pt-8">
+                <div className="md:col-span-4 space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar size={14}/> Fecha Inicio</label>
+                    <input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="w-full bg-white border-2 border-slate-100 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm" />
                 </div>
-                <div className="flex-1 w-full space-y-2">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar size={12}/> Fecha Fin</label>
-                    <input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl font-bold text-xs outline-none focus:border-orange-500 transition-colors cursor-pointer" />
+                <div className="md:col-span-4 space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar size={14}/> Fecha Fin</label>
+                    <input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="w-full bg-white border-2 border-slate-100 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm" />
                 </div>
-                <div className="flex gap-2 w-full md:w-auto">
-                    <button onClick={handleApplyFilter} disabled={isFiltering} className="flex-1 md:flex-none bg-slate-900 text-white px-6 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 disabled:opacity-50">
-                        {isFiltering ? <RefreshCw className="animate-spin" size={14}/> : <Search size={14}/>} Filtrar Rango
+                <div className="md:col-span-3 flex gap-2">
+                    <button onClick={handleApplyFilter} disabled={isFiltering} className="flex-1 bg-slate-900 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 disabled:opacity-50 shadow-xl transition-all">
+                        {isFiltering ? <RefreshCw className="animate-spin" size={16}/> : <Search size={16}/>} Filtrar Rango
                     </button>
-                    {(filterStartDate || filterEndDate) && (
-                        <button onClick={handleClearFilter} className="p-3.5 bg-white border border-slate-200 text-slate-400 rounded-xl hover:text-rose-500 transition-colors">
-                            <RotateCcw size={18}/>
-                        </button>
-                    )}
                 </div>
               </div>
            </div>
 
-           <div className="relative group">
-              <div className="overflow-x-auto bg-slate-50/50 rounded-[16px] md:rounded-[24px] border border-slate-100">
-                  <table className="w-full text-left min-w-[1100px] border-collapse">
-                    <thead>
-                      <tr className="bg-[#0f172a] text-white">
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Foto</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase">Colaborador</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Fecha / Hora</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Tipo</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center border-l border-white/10">Rostro</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Vestimenta</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase">Descripción IA</th>
-                        <th className="p-4 md:p-6 text-[9px] md:text-[10px] font-black uppercase text-center">Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {adminLogs.length === 0 ? (
-                        <tr><td colSpan={8} className="p-20 text-center text-slate-300 font-black uppercase tracking-widest">No hay registros</td></tr>
-                      ) : adminLogs.map(log => (
-                        <tr key={log.id} className="hover:bg-white transition-colors group">
-                          <td className="p-4 md:p-6 text-center">
-                            <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-12 h-12 md:w-14 md:h-14 mx-auto rounded-lg md:rounded-xl overflow-hidden border cursor-zoom-in shadow-sm transition-all">
-                              {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <UserIcon className="m-auto mt-4 text-slate-300" />}
-                            </div>
-                          </td>
-                          <td className="p-4 md:p-6">
-                            <span className="block font-black text-slate-900 text-xs md:text-sm uppercase">{log.userName}</span>
-                            <span className="text-[8px] md:text-[9px] text-slate-400 font-bold uppercase tracking-wider">Lgj: {log.legajo}</span>
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                              <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
-                              <span className="block text-[8px] text-slate-400 uppercase font-bold">{getFormattedDate(log.timestamp)}</span>
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                            <span className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-[8px] md:text-[9px] font-black uppercase border ${log.type === 'CHECK_IN' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                              {log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'}
-                            </span>
-                          </td>
-                          <td className="p-4 md:p-6 text-center border-l border-slate-100">
-                            <span className={`text-[8px] font-black uppercase ${log.identityStatus === 'MATCH' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {log.identityStatus === 'MATCH' ? 'Válido' : 'Fallo'}
-                            </span>
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                            <span className={`text-[8px] font-black uppercase ${log.dressCodeStatus === 'PASS' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {log.dressCodeStatus === 'PASS' ? 'Correcto' : 'Error'}
-                            </span>
-                          </td>
-                          <td className="p-4 md:p-6 max-w-xs">
-                            <p className="text-[9px] md:text-[10px] italic text-slate-500 line-clamp-2 leading-relaxed">"{log.aiFeedback}"</p>
-                          </td>
-                          <td className="p-4 md:p-6 text-center">
-                            <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-2 text-slate-200 hover:text-red-500">
-                                {isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={18}/>}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-              </div>
+           <div className="overflow-x-auto bg-slate-50/50 rounded-[20px] md:rounded-[32px] border border-slate-100">
+              <table className="w-full text-left min-w-[1200px] border-collapse">
+                <thead>
+                  <tr className="bg-[#0f172a] text-white">
+                    <th className="p-6 text-[10px] font-black uppercase text-center w-24">Foto</th>
+                    <th className="p-6 text-[10px] font-black uppercase">Colaborador</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-center">Fecha / Hora</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-center">Tipo</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-center border-l border-white/10">Identidad</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-center">Vestimenta</th>
+                    <th className="p-6 text-[10px] font-black uppercase">Descripción IA</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-center w-20">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {adminLogs.length === 0 ? (
+                    <tr><td colSpan={8} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
+                  ) : adminLogs.map(log => (
+                    <tr key={log.id} className="hover:bg-white transition-all">
+                      <td className="p-6 text-center">
+                        <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-14 h-14 mx-auto rounded-xl overflow-hidden border-2 border-white cursor-zoom-in shadow-md">
+                          {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
+                        </div>
+                      </td>
+                      <td className="p-6">
+                        <span className="block font-black text-slate-900 text-xs md:text-sm uppercase tracking-tight">{log.userName}</span>
+                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Lgj: {log.legajo} | {log.locationName}</span>
+                      </td>
+                      <td className="p-6 text-center">
+                          <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase bg-slate-100 px-3 py-1 rounded-lg">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="block text-[9px] text-slate-400 uppercase font-black mt-1.5">{getFormattedDate(log.timestamp)}</span>
+                      </td>
+                      <td className="p-6 text-center">
+                        <span className={`px-5 py-2 rounded-full text-[9px] font-black uppercase border-2 ${log.type === 'CHECK_IN' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                          {log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'}
+                        </span>
+                      </td>
+                      <td className="p-6 text-center border-l border-slate-100">
+                        <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.identityStatus === 'MATCH' ? 'Válido' : 'Fallo'}</span>
+                      </td>
+                      <td className="p-6 text-center">
+                        <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.dressCodeStatus === 'PASS' ? 'Correcto' : 'Error'}</span>
+                      </td>
+                      <td className="p-6 max-w-xs">
+                        <p className="text-[10px] italic text-slate-500 leading-relaxed line-clamp-2">"{log.aiFeedback}"</p>
+                      </td>
+                      <td className="p-6 text-center">
+                        <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-3 text-slate-200 hover:text-red-500 transition-all">{isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={20}/>}</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
            </div>
         </div>
-        {zoomedImage && (<div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-8" onClick={() => setZoomedImage(null)}><img src={zoomedImage} className="max-w-full max-h-full rounded-2xl md:rounded-[40px] shadow-2xl border-4 border-white animate-in zoom-in-95" /></div>)}
+        {zoomedImage && (<div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setZoomedImage(null)}><img src={zoomedImage} className="max-w-full max-h-full rounded-[40px] shadow-2xl border-4 md:border-8 border-white animate-in zoom-in-95" /></div>)}
       </div>
     );
   }
@@ -417,17 +339,16 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
            <button onClick={onLogout} className="text-xs font-black uppercase text-slate-300 hover:text-blue-600 tracking-widest transition-colors">Cerrar sesión ahora</button>
         </div>
       )}
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white rounded-[32px] md:rounded-[40px] p-8 border shadow-xl flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-black uppercase tracking-tighter">Fichador</h2>
             {deviceLocation && <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{deviceLocation.name}</span>}
           </div>
-          <div className="aspect-square rounded-[32px] overflow-hidden bg-slate-900 mb-6 relative border-4 border-slate-100">
+          <div className="aspect-square rounded-[32px] overflow-hidden bg-slate-900 mb-6 relative border-4 border-slate-100 shadow-inner">
              {!cameraActive && !photo && (
                <button onClick={() => setCameraActive(true)} className="absolute inset-0 text-white font-black uppercase text-xs flex flex-col items-center justify-center gap-4 hover:bg-slate-800 transition-colors">
-                 <div className="w-16 h-16 rounded-full bg-orange-600 flex items-center justify-center shadow-xl"><Camera size={28}/></div>
+                 <div className="w-16 h-16 rounded-full bg-orange-600 flex items-center justify-center shadow-xl ring-8 ring-orange-50"><Camera size={28}/></div>
                  Activar Cámara
                </button>
              )}
@@ -442,44 +363,43 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </div>
           <div className="space-y-3">
             {cameraActive && <button onClick={capturePhoto} className="w-full py-5 bg-orange-600 text-white rounded-[24px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95">Capturar Foto</button>}
-            {photo && !loading && <button onClick={handleClockAction} className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-2">Confirmar Fichada <ArrowRight size={18}/></button>}
+            {photo && !loading && <button onClick={handleClockAction} className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3">Confirmar Fichada <ArrowRight size={20}/></button>}
             {photo && !loading && <button onClick={() => { setPhoto(null); setCameraActive(true); }} className="w-full py-4 bg-slate-100 text-slate-500 rounded-[20px] font-black uppercase text-[10px] tracking-widest">Tomar otra foto</button>}
           </div>
         </div>
-
         <div className="space-y-6 flex flex-col">
           <div className="bg-white rounded-[32px] p-8 border shadow-sm">
             <h3 className="font-black text-[10px] uppercase text-slate-400 tracking-widest mb-4">Perfil</h3>
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-slate-100 overflow-hidden border shrink-0">
-                {user.referenceImage ? <img src={user.referenceImage} className="w-full h-full object-cover" /> : <UserIcon className="m-auto mt-4 text-slate-300" />}
+              <div className="w-16 h-16 rounded-2xl bg-slate-50 overflow-hidden border-2 border-slate-100 shadow-sm shrink-0">
+                {user.referenceImage ? <img src={user.referenceImage} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
               </div>
               <div>
                 <h4 className="font-black text-lg text-slate-900 uppercase leading-none">{user.name}</h4>
-                <p className="text-[9px] font-bold text-slate-500 mt-1 uppercase">{user.role}</p>
+                <p className="text-[9px] font-bold text-slate-500 mt-1.5 uppercase bg-slate-100 px-2 py-0.5 rounded inline-block">{user.role}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-[32px] p-8 border shadow-sm flex-1 overflow-hidden min-h-[300px]">
+          <div className="bg-white rounded-[32px] p-8 border shadow-sm flex-1 overflow-hidden min-h-[350px]">
              <h3 className="font-black text-[10px] uppercase text-slate-400 tracking-widest mb-6 flex justify-between">
-                <span>Movimientos hoy</span>
-                <span className="text-slate-900">{new Date().toLocaleDateString('es-AR', {day:'2-digit', month:'short'})}</span>
+                <span>Historial de Hoy</span>
+                <span className="text-slate-900 font-mono">{new Date().toLocaleDateString('es-AR', {day:'2-digit', month:'short'})}</span>
              </h3>
              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
                 {userTodayLogs.length === 0 ? (
-                  <div className="py-10 text-center border-2 border-dashed rounded-[20px] border-slate-100 text-slate-300 uppercase text-[9px] font-black">Sin movimientos</div>
+                  <div className="py-20 text-center border-4 border-dashed rounded-[32px] border-slate-50 text-slate-200 uppercase text-[10px] font-black">Sin movimientos hoy</div>
                 ) : userTodayLogs.map(l => (
-                  <div key={l.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
-                    <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-xl ${l.type === 'CHECK_IN' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-600'}`}>
-                            {l.type === 'CHECK_IN' ? <UserCheck size={16}/> : <LogOut size={16}/>}
+                  <div key={l.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${l.type === 'CHECK_IN' ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-white'}`}>
+                            {l.type === 'CHECK_IN' ? <UserCheck size={18}/> : <LogOut size={18}/>}
                         </div>
                         <div>
                             <span className="block font-black text-xs uppercase">{l.type === 'CHECK_IN' ? 'Ingreso' : 'Egreso'}</span>
                             <span className="text-[9px] font-bold text-slate-400 uppercase leading-none">{l.locationName}</span>
                         </div>
                     </div>
-                    <span className="font-mono font-black text-sm">{new Date(l.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                    <span className="font-mono font-black text-sm text-slate-900 bg-white px-3 py-1 rounded-lg border shadow-sm">{new Date(l.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                   </div>
                 ))}
              </div>
@@ -500,7 +420,10 @@ const AdminDashboard = () => {
   const [locations, setLocations] = useState<Location[]>([]);
   const [formData, setFormData] = useState<Partial<User>>({});
   const [formSaving, setFormSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => { 
     setLoading(true); 
@@ -515,9 +438,71 @@ const AdminDashboard = () => {
   useEffect(() => { load(); }, []);
 
   useEffect(() => { 
-    if (editingUser) setFormData({ ...editingUser, schedule: editingUser.schedule || [] }); 
-    else setFormData({ role: 'Mozo', schedule: [], assignedLocations: [], password: '1234' }); 
+    if (editingUser) setFormData({ ...editingUser, schedule: editingUser.schedule || [], assignedLocations: editingUser.assignedLocations || [] }); 
+    else setFormData({ role: 'Mozo', schedule: [], assignedLocations: [], password: '1234', legajo: '' }); 
   }, [editingUser, isCreating]);
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      'Nombre', 'DNI', 'Legajo', 'Rol', 'Contraseña', 'Codigo Vestimenta',
+      'Lunes_Inicio', 'Lunes_Fin',
+      'Martes_Inicio', 'Martes_Fin',
+      'Miércoles_Inicio', 'Miércoles_Fin',
+      'Jueves_Inicio', 'Jueves_Fin',
+      'Viernes_Inicio', 'Viernes_Fin',
+      'Sábado_Inicio', 'Sábado_Fin',
+      'Domingo_Inicio', 'Domingo_Fin'
+    ];
+    const data = [headers, ['Juan Perez', '12345678', 'LG-001', 'Mozo', '1234', 'Remera Negra', '09:00', '18:00', '', '', '', '', '', '', '', '', '', '', '', '']];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Plantilla_RRHH");
+    XLSX.writeFile(wb, "UpFest_Plantilla_RRHH.xlsx");
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawData = XLSX.utils.sheet_to_json(ws);
+        
+        for (const row of (rawData as any[])) {
+          const schedule: WorkSchedule[] = [];
+          DAYS_OF_WEEK.forEach(day => {
+            const startKey = `${day}_Inicio`;
+            const endKey = `${day}_Fin`;
+            if (row[startKey] && row[endKey]) {
+              schedule.push({ startDay: day, startTime: String(row[startKey]), endDay: day, endTime: String(row[endKey]) });
+            }
+          });
+
+          const newUser: User = {
+            id: '',
+            name: String(row['Nombre'] || ''),
+            dni: String(row['DNI'] || ''),
+            legajo: String(row['Legajo'] || ''),
+            role: String(row['Rol'] || 'Mozo'),
+            password: String(row['Contraseña'] || '1234'),
+            dressCode: String(row['Codigo Vestimenta'] || ''),
+            schedule: schedule,
+            referenceImage: null,
+            assignedLocations: []
+          };
+          if (newUser.name && newUser.dni) await saveUser(newUser);
+        }
+        alert("Importación completada exitosamente");
+        load();
+      } catch (err: any) { alert("Error procesando archivo: " + err.message); }
+      finally { setImporting(false); if (importInputRef.current) importInputRef.current.value = ''; }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault(); 
@@ -525,10 +510,17 @@ const AdminDashboard = () => {
     setFormSaving(true); 
     try { 
       await saveUser(formData as User); 
-      setEditingUser(null); 
-      setIsCreating(false); 
-      load(); 
-    } catch (err: any) { alert("Error al guardar: " + err.message); } 
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        setEditingUser(null); 
+        setIsCreating(false); 
+        load(); 
+      }, 1500);
+    } catch (err: any) { 
+      console.error("Error al guardar usuario:", err);
+      alert("Error al guardar: " + err.message); 
+    } 
     finally { setFormSaving(false); }
   };
 
@@ -539,6 +531,12 @@ const AdminDashboard = () => {
       reader.onloadend = () => setFormData({ ...formData, referenceImage: reader.result as string });
       reader.readAsDataURL(file);
     }
+  };
+
+  const toggleLocation = (locId: string) => {
+    const current = formData.assignedLocations || [];
+    if (current.includes(locId)) setFormData({ ...formData, assignedLocations: current.filter(id => id !== locId) });
+    else setFormData({ ...formData, assignedLocations: [...current, locId] });
   };
 
   const addSchedule = () => {
@@ -565,16 +563,27 @@ const AdminDashboard = () => {
           <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">Personal</h1>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Nómina UpFest Control</p>
         </div>
-        <button onClick={() => setIsCreating(true)} className="w-full md:w-auto bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
-          <Plus size={18} /> Nuevo Colaborador
-        </button>
+        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+          <button onClick={handleDownloadTemplate} className="flex-1 md:flex-none bg-emerald-50 text-emerald-600 border border-emerald-200 px-6 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm font-black text-[10px] uppercase tracking-widest hover:bg-emerald-100 transition-all">
+            <FileSpreadsheet size={18} /> Descargar Plantilla
+          </button>
+          <button onClick={() => importInputRef.current?.click()} disabled={importing} className="flex-1 md:flex-none bg-blue-50 text-blue-600 border border-blue-200 px-6 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm font-black text-[10px] uppercase tracking-widest hover:bg-blue-100 transition-all">
+            {importing ? <RefreshCw className="animate-spin" size={18}/> : <FileUp size={18} />} {importing ? 'Subiendo...' : 'Importar Excel'}
+          </button>
+          <input type="file" ref={importInputRef} onChange={handleImportExcel} className="hidden" accept=".xlsx,.xls" />
+          <button onClick={() => setIsCreating(true)} className="flex-1 md:flex-none bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+            <Plus size={18} /> Nuevo Colaborador
+          </button>
+        </div>
       </div>
       
       <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm">
          <div className="overflow-x-auto"><table className="w-full text-left border-collapse">
            <thead><tr className="bg-slate-50 border-b"><th className="p-6 text-[10px] font-black uppercase">Colaborador</th><th className="p-6 text-[10px] font-black uppercase">DNI</th><th className="p-6 text-[10px] font-black uppercase">Rol</th><th className="p-6 text-right">Acciones</th></tr></thead>
            <tbody className="divide-y">
-             {users.map(u => (
+             {users.length === 0 ? (
+               <tr><td colSpan={4} className="p-20 text-center text-slate-300 font-black uppercase italic">Sin personal cargado</td></tr>
+             ) : users.map(u => (
                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
                  <td className="p-6 flex items-center gap-4"><div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0">{u.referenceImage && <img src={u.referenceImage} className="w-full h-full object-cover" />}</div><span className="font-black text-slate-800 uppercase text-sm">{u.name}</span></td>
                  <td className="p-6 text-xs font-bold text-slate-500 font-mono">{u.dni}</td>
@@ -588,48 +597,143 @@ const AdminDashboard = () => {
 
       {(isCreating || editingUser) && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-2 md:p-4">
-          <div className="bg-white rounded-[48px] w-full max-w-5xl shadow-2xl overflow-y-auto max-h-[95vh] relative animate-in zoom-in-95 duration-300">
-            <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="absolute top-8 right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
-            <form onSubmit={handleSaveUser} className="p-12 space-y-12">
+          <div className="bg-white rounded-[40px] md:rounded-[48px] w-full max-w-5xl shadow-2xl overflow-y-auto max-h-[95vh] relative animate-in zoom-in-95 duration-300">
+            {/* --- CARTEL DE ÉXITO REFORZADO --- */}
+            {saveSuccess && (
+              <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[200] flex flex-col items-center justify-center animate-in fade-in duration-300">
+                <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-bounce shadow-xl shadow-emerald-50 border-4 border-white">
+                  <Check size={48} className="text-emerald-600" />
+                </div>
+                <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900">CAMBIOS REALIZADOS</h3>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 italic">ACTUALIZANDO NÓMINA...</p>
+              </div>
+            )}
+
+            <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="absolute top-6 right-6 md:top-8 md:right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
+            <form onSubmit={handleSaveUser} className="p-6 md:p-12 space-y-8 md:space-y-12">
               <div className="border-b pb-6">
-                <h3 className="font-black text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h3>
+                <h3 className="font-black text-3xl md:text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h3>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">SISTEMA RRHH - UPFEST</p>
               </div>
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-12">
+
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 md:gap-12">
                 <div className="flex flex-col items-center gap-6">
-                    <div className="aspect-[4/5] w-full bg-slate-50 rounded-[32px] border-4 border-slate-100 relative overflow-hidden group">
+                    <div className="aspect-[4/5] w-full bg-slate-50 rounded-[32px] border-4 border-slate-100 relative overflow-hidden group shadow-inner">
                        {formData.referenceImage ? <img src={formData.referenceImage} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><ImageIcon size={48}/></div>}
                        <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-black text-xs uppercase gap-2 backdrop-blur-sm"><Upload size={18}/> Cambiar</button>
                     </div>
                     <input type="file" ref={fileInputRef} onChange={handleImageChange} className="hidden" accept="image/*" />
+                    <div className="w-full space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest block">LEGAJO</label>
+                        <input type="text" value={formData.legajo || ''} onChange={e => setFormData({...formData, legajo: e.target.value})} className="w-full p-4 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-xs" placeholder="ADM-000" />
+                    </div>
                 </div>
-                <div className="xl:col-span-2 space-y-8">
+
+                <div className="xl:col-span-2 space-y-6 md:space-y-10">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="col-span-full space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400">Nombre Completo</label>
-                      <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none uppercase text-sm" required />
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nombre Completo</label>
+                      <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none uppercase text-sm md:text-base border border-transparent focus:border-slate-200" required />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400">DNI</label>
-                      <input type="text" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm" required />
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">DNI</label>
+                      <input type="text" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm md:text-base border border-transparent focus:border-slate-200" required />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400">Rol</label>
-                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Rol / Puesto</label>
+                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm md:text-base border border-transparent focus:border-slate-200">
                         {DEFAULT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                       </select>
                     </div>
+                    <div className="col-span-full space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Vestimenta Requerida</label>
+                      <textarea value={formData.dressCode || ''} onChange={e => setFormData({...formData, dressCode: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 h-24 outline-none text-sm resize-none border border-transparent focus:border-slate-200" placeholder="Ej: Remera negra lisa, pantalón oscuro..." />
+                    </div>
                   </div>
+
                   <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest block">VESTIMENTA REQUERIDA</label>
-                    <textarea value={formData.dressCode || ''} onChange={e => setFormData({...formData, dressCode: e.target.value})} className="w-full p-6 bg-slate-50 rounded-[28px] border-none font-black text-slate-900 h-32 outline-none text-sm" placeholder="Ej: Remera blanca con logo, pantalón negro..." />
+                     <h4 className="font-black text-[12px] uppercase tracking-tighter flex items-center gap-2 text-slate-800"><MapPin size={18}/> SEDES ASIGNADAS</h4>
+                     <div className="flex flex-wrap gap-3">
+                        {locations.map(loc => {
+                           const isActive = formData.assignedLocations?.includes(loc.id);
+                           return (
+                             <button 
+                                key={loc.id} 
+                                type="button" 
+                                onClick={() => toggleLocation(loc.id)} 
+                                className={`px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all flex items-center gap-3 ${isActive ? 'bg-white border-orange-500 text-orange-600 shadow-lg shadow-orange-50' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
+                             >
+                                {loc.name}
+                                {isActive && <Check size={14}/>}
+                             </button>
+                           );
+                        })}
+                     </div>
                   </div>
                 </div>
               </div>
-              <div className="flex flex-col md:flex-row gap-3 pt-6 border-t">
-                <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="flex-1 py-6 bg-white border border-slate-200 text-slate-400 rounded-[28px] font-black uppercase tracking-widest text-xs">CANCELAR</button>
-                <button type="submit" disabled={formSaving} className="flex-[2] py-6 bg-slate-900 text-white rounded-[28px] font-black uppercase tracking-widest shadow-2xl flex items-center justify-center gap-3 text-xs transition-all hover:scale-[1.01]">
-                  {formSaving ? <RefreshCw className="animate-spin"/> : 'GUARDAR FICHA'}
+
+              <div className="bg-slate-50/50 p-6 md:p-10 rounded-[32px] md:rounded-[48px] border border-slate-100 space-y-8">
+                 <div className="flex items-center justify-between gap-4">
+                    <h4 className="font-black text-[12px] uppercase tracking-tighter flex items-center gap-3 text-slate-800"><Clock size={20}/> HORARIOS DE TRABAJO</h4>
+                    <button type="button" onClick={addSchedule} className="bg-white border-2 border-slate-200 text-slate-900 px-6 py-3 rounded-2xl flex items-center gap-2 font-black text-[10px] uppercase tracking-widest shadow-sm hover:border-orange-500 hover:text-orange-600 transition-all">
+                        <Plus size={18}/> AÑADIR FRANJA
+                    </button>
+                 </div>
+
+                 <div className="grid grid-cols-1 gap-6">
+                    {(!formData.schedule || formData.schedule.length === 0) ? (
+                      <div className="py-12 text-center border-4 border-dashed rounded-[32px] border-slate-100">
+                        <Calendar size={48} className="mx-auto text-slate-200 mb-4" strokeWidth={1}/>
+                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Sin horarios configurados</p>
+                      </div>
+                    ) : (
+                      formData.schedule.map((slot, idx) => (
+                        <div key={idx} className="bg-white p-8 rounded-[28px] shadow-sm border border-slate-100 relative group animate-in slide-in-from-right-4">
+                           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 items-center">
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inicia</label>
+                                <select value={slot.startDay} onChange={e => updateSchedule(idx, 'startDay', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs appearance-none cursor-pointer">
+                                  {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Entrada</label>
+                                <div className="relative">
+                                  <input type="time" value={slot.startTime} onChange={e => updateSchedule(idx, 'startTime', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs cursor-pointer" />
+                                  <Clock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14}/>
+                                </div>
+                              </div>
+                              <div className="hidden md:flex items-center justify-center text-slate-200 pt-6">
+                                <ArrowRight size={24}/>
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Termina</label>
+                                <select value={slot.endDay} onChange={e => updateSchedule(idx, 'endDay', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs appearance-none cursor-pointer">
+                                  {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Salida</label>
+                                <div className="relative">
+                                  <input type="time" value={slot.endTime} onChange={e => updateSchedule(idx, 'endTime', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs cursor-pointer" />
+                                  <Clock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14}/>
+                                </div>
+                              </div>
+                           </div>
+                           <button type="button" onClick={() => removeSchedule(idx)} className="absolute -bottom-3 -left-3 md:bottom-auto md:left-auto md:top-6 md:right-6 p-4 bg-white md:bg-transparent text-slate-200 hover:text-rose-500 rounded-2xl shadow-lg md:shadow-none transition-all group-hover:scale-110">
+                               <Trash2 size={20}/>
+                           </button>
+                        </div>
+                      ))
+                    )}
+                 </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row gap-4 pt-8">
+                <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="flex-1 py-6 bg-white border-2 border-slate-100 text-slate-400 rounded-[28px] font-black uppercase tracking-widest text-[11px] hover:bg-slate-50 transition-colors shadow-sm">CANCELAR</button>
+                <button type="submit" disabled={formSaving} className="flex-[2] py-6 bg-[#0f172a] text-white rounded-[28px] font-black uppercase tracking-widest shadow-2xl flex items-center justify-center gap-3 text-[11px] transition-all hover:bg-slate-800 hover:scale-[1.01] active:scale-95 disabled:opacity-50">
+                  {formSaving ? <RefreshCw className="animate-spin" size={18}/> : 'GUARDAR FICHA'}
                 </button>
               </div>
             </form>
