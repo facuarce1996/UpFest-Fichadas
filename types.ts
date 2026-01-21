@@ -1,5 +1,4 @@
 
-
 export type Role = string;
 
 export const DEFAULT_ROLES = [
@@ -31,20 +30,7 @@ export const DAYS_OF_WEEK = [
   'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'
 ];
 
-// --- Declaraciones Globales para AI Studio ---
-// We define AIStudio as a global interface to match the environment's expected type
-// and avoid redeclaration errors with mismatched modifiers.
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-
-  interface Window {
-    // FIX: Added 'readonly' modifier to resolve the "identical modifiers" error as it must match the internal definition.
-    readonly aistudio: AIStudio;
-  }
-}
+// Las declaraciones globales de AI Studio son manejadas por el entorno de ejecución.
 
 export interface WorkSchedule {
   startDay: string;
