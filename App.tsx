@@ -66,7 +66,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // EFECTO PARA MANEJAR EL CONTADOR REGRESIVO Y CIERRE DE SESIÓN AUTOMÁTICO
   useEffect(() => {
     if (!successAction) return;
 
@@ -75,7 +74,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         if (!prev) return null;
         if (prev.countdown <= 1) {
           clearInterval(timer);
-          // Al llegar a cero, cerramos la sesión del usuario directamente
           setTimeout(() => onLogout(), 100); 
           return null; 
         }
@@ -510,7 +508,6 @@ const AdminDashboard = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importing, setImporting] = useState(false);
   const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [dbHealthy, setDbHealthy] = useState(true);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -662,13 +659,6 @@ const AdminDashboard = () => {
     setFormData({ ...formData, schedule: newSchedules });
   };
 
-  const filteredUsers = users.filter(u => {
-    if (filterStatus === 'all') return true;
-    if (filterStatus === 'active') return u.isActive;
-    if (filterStatus === 'inactive') return !u.isActive;
-    return true;
-  });
-
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in">
       {!dbHealthy && (
@@ -699,31 +689,15 @@ const AdminDashboard = () => {
           </button>
         </div>
       </div>
-
-      <div className="flex items-center gap-2 mb-4 bg-slate-100 p-1 rounded-2xl w-fit">
-        {[
-          { id: 'all', label: 'Todos' },
-          { id: 'active', label: 'Activos' },
-          { id: 'inactive', label: 'Inactivos' }
-        ].map(btn => (
-          <button 
-            key={btn.id} 
-            onClick={() => setFilterStatus(btn.id as any)}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterStatus === btn.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            {btn.label}
-          </button>
-        ))}
-      </div>
       
       <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm">
          <div className="overflow-x-auto"><table className="w-full text-left border-collapse">
-           <thead><tr className="bg-slate-50 border-b"><th className="p-6 text-[10px] font-black uppercase">Colaborador</th><th className="p-6 text-[10px] font-black uppercase">DNI</th><th className="p-6 text-[10px] font-black uppercase">Rol</th><th className="p-6 text-[10px] font-black uppercase">Estado</th><th className="p-6 text-right">Acciones</th></tr></thead>
+           <thead><tr className="bg-slate-50 border-b"><th className="p-6 text-[10px] font-black uppercase">Colaborador</th><th className="p-6 text-[10px] font-black uppercase">DNI</th><th className="p-6 text-[10px] font-black uppercase">Rol</th><th className="p-6 text-right">Acciones</th></tr></thead>
            <tbody className="divide-y">
-             {filteredUsers.length === 0 ? (
-               <tr><td colSpan={5} className="p-20 text-center text-slate-300 font-black uppercase italic">Sin personal para mostrar</td></tr>
-             ) : filteredUsers.map(u => (
-               <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${!u.isActive ? 'opacity-60' : ''}`}>
+             {users.length === 0 ? (
+               <tr><td colSpan={4} className="p-20 text-center text-slate-300 font-black uppercase italic">Sin personal para mostrar</td></tr>
+             ) : users.map(u => (
+               <tr key={u.id} className="hover:bg-slate-50 transition-colors">
                  <td className="p-6 flex items-center gap-4">
                    <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0">
                      {u.referenceImage && <img src={u.referenceImage} className="w-full h-full object-cover" />}
@@ -732,11 +706,6 @@ const AdminDashboard = () => {
                  </td>
                  <td className="p-6 text-xs font-bold text-slate-500 font-mono">{u.dni}</td>
                  <td className="p-6 text-[10px] font-black uppercase text-slate-700">{u.role}</td>
-                 <td className="p-6">
-                   <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${u.isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                     {u.isActive ? 'Activo' : 'Inactivo'}
-                   </span>
-                 </td>
                  <td className="p-6 text-right">
                    <div className="flex items-center justify-end gap-1">
                      <button onClick={() => setEditingUser(u)} className="p-3 text-slate-300 hover:text-orange-600 transition-colors" title="Editar">
@@ -773,22 +742,9 @@ const AdminDashboard = () => {
 
             <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="absolute top-6 right-6 md:top-8 md:right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
             <form onSubmit={handleSaveUser} className="p-6 md:p-12 space-y-8 md:space-y-12">
-              <div className="border-b pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-                <div>
+              <div className="border-b pb-6">
                   <h3 className="font-black text-3xl md:text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h3>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">SISTEMA RRHH - UPFEST</p>
-                </div>
-                
-                <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border">
-                   <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">ESTADO:</span>
-                   <button 
-                      type="button" 
-                      onClick={() => setFormData({...formData, isActive: !formData.isActive})}
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.isActive ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-rose-500 text-white shadow-lg shadow-rose-100'}`}
-                   >
-                     {formData.isActive ? 'ACTIVO' : 'INACTIVO'}
-                   </button>
-                </div>
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 md:gap-12">
@@ -908,7 +864,7 @@ const AdminDashboard = () => {
               <div className="flex flex-col md:flex-row gap-4 pt-8">
                 <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="flex-1 py-6 bg-white border-2 border-slate-100 text-slate-400 rounded-[28px] font-black uppercase tracking-widest text-[11px] hover:bg-slate-50 transition-colors shadow-sm">CANCELAR</button>
                 <button type="submit" disabled={formSaving} className="flex-[2] py-6 bg-[#0f172a] text-white rounded-[28px] font-black uppercase tracking-widest shadow-2xl flex items-center justify-center gap-3 text-[11px] transition-all hover:bg-slate-800 hover:scale-[1.01] active:scale-95 disabled:opacity-50">
-                  {formSaving ? <RefreshCw className="animate-spin" size={18}/> : 'GUARDAR FICHA'}
+                  {formSaving ? 'GUARDANDO CAMBIOS...' : 'GUARDAR FICHA'}
                 </button>
               </div>
             </form>
@@ -1175,7 +1131,6 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
       if (user) onLogin(user); 
       else setError('DNI O CLAVE INCORRECTO'); 
     } catch (err: any) { 
-      // Si el error es CUENTA DESACTIVADA u otro específico, lo mostramos
       if (err.message === "CUENTA DESACTIVADA") {
         setError("CUENTA DESACTIVADA");
       } else {
