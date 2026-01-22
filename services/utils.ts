@@ -147,6 +147,7 @@ const mapLogFromDB = (l: any): LogEntry => {
     locationName: l.location_name,
     locationStatus: l.location_status || 'SKIPPED',
     scheduleStatus: l.schedule_status,
+    // Fix: Use camelCase properties as defined in LogEntry interface
     dressCodeStatus: l.dress_code_status || 'SKIPPED',
     identityStatus: l.identity_status || 'SKIPPED',
     photoEvidence: l.photo_evidence || '',
@@ -160,6 +161,13 @@ export const fetchUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase.from('users').select('*').order('name');
   if (error) return [];
   return data.map(mapUserFromDB);
+};
+
+export const checkDatabaseHealth = async (): Promise<boolean> => {
+  try {
+    const { error } = await supabase.from('users').select('is_active').limit(1);
+    return !error;
+  } catch { return false; }
 };
 
 export const saveUser = async (user: User) => {
@@ -180,6 +188,7 @@ export const saveUser = async (user: User) => {
       reference_image: referenceImageUrl,
       schedule: user.schedule || [],
       is_active: user.isActive, 
+      // Fix: Use assignedLocations from User interface
       assigned_locations: user.assignedLocations || [] 
     };
 
@@ -193,19 +202,16 @@ export const saveUser = async (user: User) => {
 
     let result = await attemptSave(dbUser);
 
-    // Si hay un error de columna no encontrada (is_active o assigned_locations), reintentamos sin esos campos
-    if (result.error && (result.error.message.includes("column") || result.error.message.includes("is_active"))) {
-      console.warn("Estructura de DB desactualizada. Reintentando guardado simple...");
+    // Detección mejorada de columnas faltantes
+    if (result.error && (result.error.message.includes("column") || result.error.message.includes("cache"))) {
       const prunedUser = { ...dbUser };
       delete prunedUser.is_active;
       delete prunedUser.assigned_locations;
       
       result = await attemptSave(prunedUser);
-      
       if (result.error) throw new Error(result.error.message);
       
-      // Informamos al log pero permitimos que la app siga
-      console.error("AVISO: No se pudo guardar el estado 'Activo' ni las 'Sedes' porque las columnas no existen en Supabase. Ejecute el script SQL.");
+      console.warn("GUARDADO PARCIAL: Base de Datos requiere ejecución de SUPABASE_SETUP.sql para habilitar estados y sedes.");
     } else if (result.error) {
       throw new Error(result.error.message);
     }

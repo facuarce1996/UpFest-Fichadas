@@ -7,12 +7,12 @@ import {
   getCurrentPosition, calculateDistance, isWithinSchedule, 
   fetchUsers, fetchLocations, fetchLogs, fetchTodayLogs, fetchLogsByDateRange, addLog, saveUser, deleteUser,
   authenticateUser, saveLocation, deleteLocation, fetchCompanyLogo, saveCompanyLogo,
-  fetchLastLog, updateLog, deleteLog
+  fetchLastLog, updateLog, deleteLog, checkDatabaseHealth
 } from './services/utils';
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -424,6 +424,7 @@ const AdminDashboard = () => {
   const [importing, setImporting] = useState(false);
   const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const [dbHealthy, setDbHealthy] = useState(true);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -431,9 +432,10 @@ const AdminDashboard = () => {
   const load = async () => { 
     setLoading(true); 
     try { 
-      const [u, l] = await Promise.all([fetchUsers(), fetchLocations()]); 
+      const [u, l, healthy] = await Promise.all([fetchUsers(), fetchLocations(), checkDatabaseHealth()]); 
       setUsers(u); 
       setLocations(l); 
+      setDbHealthy(healthy);
     } catch (err) { console.error("Error al cargar nómina:", err); } 
     finally { setLoading(false); } 
   };
@@ -582,6 +584,16 @@ const AdminDashboard = () => {
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in">
+      {!dbHealthy && (
+        <div className="bg-amber-50 border border-amber-200 p-6 rounded-[24px] flex flex-col md:flex-row items-center gap-4 animate-bounce shadow-xl">
+           <Activity className="text-amber-600 shrink-0" size={32}/>
+           <div className="flex-1 text-center md:text-left">
+              <p className="font-black text-[10px] uppercase tracking-widest text-amber-700">Actualización de Base de Datos Necesaria</p>
+              <p className="text-xs font-bold text-amber-900 leading-tight">Ejecuta el script SQL incluido para habilitar estados y sedes asignadas.</p>
+           </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="text-center md:text-left">
           <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">Personal</h1>
