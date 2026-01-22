@@ -128,7 +128,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const handleExportExcel = () => {
     if (adminLogs.length === 0) return alert("No hay datos para exportar.");
     
-    // Agrupamos fichadas por usuario para realizar el emparejamiento
     const userMap = new Map<string, LogEntry[]>();
     adminLogs.forEach(log => {
       const userLogs = userMap.get(log.userId) || [];
@@ -139,7 +138,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const reportData: any[] = [];
 
     userMap.forEach((logs) => {
-      // Ordenamos cronológicamente para buscar pares ingreso/egreso
       const sorted = [...logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       
       for (let i = 0; i < sorted.length; i++) {
@@ -147,27 +145,27 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         
         if (current.type === 'CHECK_IN') {
           const next = sorted[i + 1];
-          // Si el siguiente registro es un egreso, los unimos en una fila
           if (next && next.type === 'CHECK_OUT') {
             reportData.push({
               'LEGAJO': current.legajo,
               'NOMBRE': current.userName,
-              'FECHA': new Date(current.timestamp).toLocaleDateString('es-AR'),
+              'FECHA INGRESO': new Date(current.timestamp).toLocaleDateString('es-AR'),
               'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'FECHA EGRESO': new Date(next.timestamp).toLocaleDateString('es-AR'),
               'HORA EGRESO': new Date(next.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
               'VALIDA ROSTRO': current.identityStatus === 'MATCH' ? 'SI' : 'NO',
               'VALIDA VESTIMENTA': current.dressCodeStatus === 'PASS' ? 'SI' : 'NO',
               'SEDE': current.locationName,
               'DESCRIPCION IA': current.aiFeedback
             });
-            i++; // Saltamos el egreso ya que fue emparejado
+            i++; 
           } else {
-            // Ingreso sin egreso registrado (o aún trabajando)
             reportData.push({
               'LEGAJO': current.legajo,
               'NOMBRE': current.userName,
-              'FECHA': new Date(current.timestamp).toLocaleDateString('es-AR'),
+              'FECHA INGRESO': new Date(current.timestamp).toLocaleDateString('es-AR'),
               'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'FECHA EGRESO': '---',
               'HORA EGRESO': '---',
               'VALIDA ROSTRO': current.identityStatus === 'MATCH' ? 'SI' : 'NO',
               'VALIDA VESTIMENTA': current.dressCodeStatus === 'PASS' ? 'SI' : 'NO',
@@ -176,12 +174,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             });
           }
         } else if (current.type === 'CHECK_OUT') {
-          // Egreso sin ingreso previo (huérfano)
           reportData.push({
             'LEGAJO': current.legajo,
             'NOMBRE': current.userName,
-            'FECHA': new Date(current.timestamp).toLocaleDateString('es-AR'),
+            'FECHA INGRESO': '---',
             'HORA INGRESO': '---',
+            'FECHA EGRESO': new Date(current.timestamp).toLocaleDateString('es-AR'),
             'HORA EGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
             'VALIDA ROSTRO': 'NO',
             'VALIDA VESTIMENTA': 'NO',
@@ -192,17 +190,18 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       }
     });
 
-    // Ordenar por fecha descendente
     reportData.sort((a, b) => {
-      const dateA = new Date(a.FECHA.split('/').reverse().join('-')).getTime();
-      const dateB = new Date(b.FECHA.split('/').reverse().join('-')).getTime();
+      const dateAStr = a['FECHA INGRESO'] !== '---' ? a['FECHA INGRESO'] : a['FECHA EGRESO'];
+      const dateBStr = b['FECHA INGRESO'] !== '---' ? b['FECHA INGRESO'] : b['FECHA EGRESO'];
+      const dateA = new Date(dateAStr.split('/').reverse().join('-')).getTime();
+      const dateB = new Date(dateBStr.split('/').reverse().join('-')).getTime();
       return dateB - dateA;
     });
 
     const ws = XLSX.utils.json_to_sheet(reportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Fichadas Consolidadas");
-    XLSX.writeFile(wb, `Reporte_UpFest_Fichadas_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Fichadas UpFest");
+    XLSX.writeFile(wb, `Reporte_Fichadas_UpFest_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   useEffect(() => {

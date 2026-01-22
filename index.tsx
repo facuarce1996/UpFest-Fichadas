@@ -4,14 +4,12 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 
 // Polyfill de emergencia para process.env
-// Se ejecuta inmediatamente para evitar errores "Uncaught ReferenceError: process is not defined"
+// Se asegura de no sobrescribir variables ya definidas por el entorno
 try {
   if (typeof (window as any).process === 'undefined') {
-    (window as any).process = { 
-      env: { 
-        API_KEY: '' 
-      } 
-    };
+    (window as any).process = { env: {} };
+  } else if (!(window as any).process.env) {
+    (window as any).process.env = {};
   }
 } catch (e) {
   console.warn("No se pudo definir el polyfill de process:", e);
