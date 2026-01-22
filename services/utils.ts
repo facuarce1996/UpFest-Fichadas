@@ -121,7 +121,7 @@ const mapUserFromDB = (u: any): User => ({
   referenceImage: u.reference_image || null,
   schedule: u.schedule || [],
   assignedLocations: u.assigned_locations || [],
-  isActive: u.is_active !== false // Si la columna no existe, u.is_active es undefined, tratamos como true
+  isActive: u.is_active !== false 
 });
 
 const mapLocationFromDB = (l: any): Location => ({
@@ -170,9 +170,7 @@ export const saveUser = async (user: User) => {
       if (uploadedUrl) referenceImageUrl = uploadedUrl;
     }
     
-    // Se omiten temporalmente columnas que podrían no existir aún en el esquema real del usuario
-    // como 'is_active' y 'assigned_locations' si causan error.
-    // Solo enviamos columnas base confirmadas.
+    // Objeto de datos para la base de datos
     const dbUser: any = {
       dni: user.dni,
       password: user.password,
@@ -181,18 +179,34 @@ export const saveUser = async (user: User) => {
       legajo: user.legajo,
       dress_code: user.dressCode,
       reference_image: referenceImageUrl,
-      schedule: user.schedule || []
-      // Se omite is_active para evitar el error de esquema hasta que se corra el SQL
+      schedule: user.schedule || [],
+      is_active: user.isActive, 
+      assigned_locations: user.assignedLocations || [] 
     };
 
     if (user.id && user.id !== "" && user.id !== "0" && user.id !== "admin_session") {
       const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        // Si el error dice que la columna no existe, es probable que no se haya corrido el SQL
+        if (error.message.includes("is_active")) {
+          throw new Error("ERROR CRÍTICO: La columna 'is_active' no existe en tu base de datos. Por favor, ejecuta el script de SUPABASE_SETUP.sql en el panel de Supabase.");
+        }
+        throw new Error(error.message);
+      }
     } else {
+      // Intentamos insertar omitiendo el ID para que lo genere la DB
       const { error } = await supabase.from('users').insert(dbUser);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (error.message.includes("is_active")) {
+          throw new Error("ERROR CRÍTICO: La columna 'is_active' no existe en tu base de datos. Por favor, ejecuta el script de SUPABASE_SETUP.sql en el panel de Supabase.");
+        }
+        throw new Error(error.message);
+      }
     }
-  } catch (err: any) { throw err; }
+  } catch (err: any) { 
+    console.error("Save User Exception:", err);
+    throw err; 
+  }
 };
 
 export const deleteUser = async (userId: string) => {
