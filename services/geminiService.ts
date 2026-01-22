@@ -3,7 +3,11 @@ import { GoogleGenAI, Type, Part } from "@google/genai";
 import { ValidationResult } from "../types";
 
 const cleanBase64 = (dataUrl: string) => {
-  return dataUrl.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+  if (!dataUrl) return "";
+  // Buscamos la primera coma que separa el encabezado de los datos base64
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex === -1) return dataUrl;
+  return dataUrl.substring(commaIndex + 1);
 };
 
 const getBase64FromUrl = async (url: string): Promise<string | null> => {
@@ -54,7 +58,10 @@ export const analyzeCheckIn = async (
   dressCodeDescription: string,
   referenceImage: string | null
 ): Promise<ValidationResult> => {
-  try {
+  const MAX_RETRIES = 3;
+  let attempt = 0;
+
+  const executeAnalysis = async (): Promise<ValidationResult> => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const parts: Part[] = [];
     
@@ -67,16 +74,21 @@ export const analyzeCheckIn = async (
         }
     }
 
+    const checkInBase64 = cleanBase64(checkInImage);
+    if (!checkInBase64) {
+      throw new Error("La imagen capturada es inválida o está vacía.");
+    }
+
     const prompt = `Analiza esta fichada de UpFest:
       1. ROSTRO: ${refBase64 ? 'Compara con la referencia adjunta.' : 'Verifica rostro humano visible.'}
       2. VESTIMENTA: ¿Cumple con "${dressCodeDescription || 'Uniforme estándar'}"?
       Responde estrictamente en formato JSON.`;
 
-    if (refBase64) {
+    if (refBase64 && refBase64.length > 0) {
       parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
     }
     
-    parts.push({ inlineData: { mimeType: "image/jpeg", data: cleanBase64(checkInImage) } });
+    parts.push({ inlineData: { mimeType: "image/jpeg", data: checkInBase64 } });
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
@@ -90,24 +102,51 @@ export const analyzeCheckIn = async (
     });
 
     const resultText = response.text?.trim();
-    if (!resultText) throw new Error("Respuesta vacía");
+    if (!resultText) throw new Error("Respuesta vacía de la IA.");
     
     return JSON.parse(resultText);
-  } catch (error: any) {
-    console.error("AI Analysis Error:", error);
-    
-    let msg = "Error en el servidor de Inteligencia Artificial.";
-    if (error.message?.includes("403") || error.message?.includes("API_KEY_INVALID") || error.message?.includes("permission")) {
-        msg = "Error de Permisos: Revisa la API_KEY en las variables de entorno de tu servidor.";
-    } else if (error.message?.includes("429")) {
-        msg = "Error: Límite de cuota de IA excedido.";
-    }
+  };
 
-    return { 
-        identityMatch: false, 
-        dressCodeMatches: false, 
-        description: msg, 
-        confidence: 0 
-    };
+  while (attempt < MAX_RETRIES) {
+    try {
+      return await executeAnalysis();
+    } catch (error: any) {
+      attempt++;
+      const isOverloaded = error.message?.includes("503") || error.message?.includes("overloaded");
+      const isBadRequest = error.message?.includes("400") || error.message?.includes("INVALID_ARGUMENT");
+      
+      if (isOverloaded && attempt < MAX_RETRIES) {
+        console.warn(`Modelo sobrecargado. Reintento ${attempt} de ${MAX_RETRIES}...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        continue;
+      }
+
+      console.error("AI Analysis Error Details:", error);
+      
+      let msg = "Error en el servidor de Inteligencia Artificial.";
+      if (isBadRequest) {
+          msg = "Error: Los datos de imagen enviados no son válidos. Intenta capturar la foto nuevamente.";
+      } else if (error.message?.includes("403") || error.message?.includes("API_KEY_INVALID") || error.message?.includes("permission")) {
+          msg = "Error de Permisos: Revisa la API_KEY en las variables de entorno de tu servidor.";
+      } else if (error.message?.includes("429")) {
+          msg = "Error: Límite de cuota de IA excedido.";
+      } else if (isOverloaded) {
+          msg = "El servidor de IA está saturado. Por favor, intenta de nuevo en unos segundos.";
+      }
+
+      return { 
+          identityMatch: false, 
+          dressCodeMatches: false, 
+          description: msg, 
+          confidence: 0 
+      };
+    }
   }
+
+  return { 
+    identityMatch: false, 
+    dressCodeMatches: false, 
+    description: "No se pudo conectar con la IA tras varios intentos.", 
+    confidence: 0 
+  };
 };

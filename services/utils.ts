@@ -147,7 +147,6 @@ const mapLogFromDB = (l: any): LogEntry => {
     locationName: l.location_name,
     locationStatus: l.location_status || 'SKIPPED',
     scheduleStatus: l.schedule_status,
-    // Fix: Use camelCase properties as defined in LogEntry interface
     dressCodeStatus: l.dress_code_status || 'SKIPPED',
     identityStatus: l.identity_status || 'SKIPPED',
     photoEvidence: l.photo_evidence || '',
@@ -188,7 +187,6 @@ export const saveUser = async (user: User) => {
       reference_image: referenceImageUrl,
       schedule: user.schedule || [],
       is_active: user.isActive, 
-      // Fix: Use assignedLocations from User interface
       assigned_locations: user.assignedLocations || [] 
     };
 
@@ -202,7 +200,6 @@ export const saveUser = async (user: User) => {
 
     let result = await attemptSave(dbUser);
 
-    // Detección mejorada de columnas faltantes
     if (result.error && (result.error.message.includes("column") || result.error.message.includes("cache"))) {
       const prunedUser = { ...dbUser };
       delete prunedUser.is_active;
@@ -332,7 +329,13 @@ export const authenticateUser = async (dni: string, password: string): Promise<U
   }
   const { data, error } = await supabase.from('users').select('*').eq('dni', dni).eq('password', password).maybeSingle();
   if (error || !data) return null;
-  return mapUserFromDB(data);
+  
+  const user = mapUserFromDB(data);
+  if (!user.isActive) {
+    throw new Error("CUENTA DESACTIVADA");
+  }
+  
+  return user;
 };
 
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {

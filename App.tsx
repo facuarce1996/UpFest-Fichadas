@@ -60,13 +60,31 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [isFiltering, setIsFiltering] = useState(false);
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
   
-  const defaultWebhook = 'https://script.google.com/macros/s/AKfycbxFfuiW2oOkPpao2bL0G45mxZR5hZ5-4T2Ko-f04oFPSwEaLaREHyAg7iiEXdCBl8dY/exec';
-  const [gsheetUrl, setGsheetUrl] = useState(localStorage.getItem('upfest_gsheet_webhook') || defaultWebhook);
   const [successAction, setSuccessAction] = useState<{ type: string, countdown: number } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // EFECTO PARA MANEJAR EL CONTADOR REGRESIVO Y CIERRE DE SESIÓN AUTOMÁTICO
+  useEffect(() => {
+    if (!successAction) return;
+
+    const timer = setInterval(() => {
+      setSuccessAction(prev => {
+        if (!prev) return null;
+        if (prev.countdown <= 1) {
+          clearInterval(timer);
+          // Al llegar a cero, cerramos la sesión del usuario directamente
+          setTimeout(() => onLogout(), 100); 
+          return null; 
+        }
+        return { ...prev, countdown: prev.countdown - 1 };
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [successAction, onLogout]);
 
   const loadData = useCallback(async (showLoading = false, start?: string, end?: string) => {
     if (showLoading) setIsFiltering(true);
@@ -258,11 +276,19 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext('2d');
       if (context) {
+        if (videoRef.current.videoWidth === 0) return;
+        
         canvasRef.current.width = videoRef.current.videoWidth;
         canvasRef.current.height = videoRef.current.videoHeight;
         context.drawImage(videoRef.current, 0, 0);
-        setPhoto(canvasRef.current.toDataURL('image/jpeg', 0.8));
-        setCameraActive(false);
+        const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
+        
+        if (dataUrl && dataUrl.length > 10) {
+          setPhoto(dataUrl);
+          setCameraActive(false);
+        } else {
+          console.error("Captura de foto fallida: dataUrl inválido.");
+        }
       }
     }
   };
@@ -1139,16 +1165,26 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
   const [password, setPassword] = useState(''); 
   const [error, setError] = useState(''); 
   const [loading, setLoading] = useState(false);
+  
   const handleLogin = async (e: React.FormEvent) => { 
     e.preventDefault(); 
     setLoading(true); 
+    setError('');
     try { 
       const user = await authenticateUser(dni, password); 
       if (user) onLogin(user); 
       else setError('DNI O CLAVE INCORRECTO'); 
-    } catch (err) { setError('ERROR DE CONEXIÓN'); } 
+    } catch (err: any) { 
+      // Si el error es CUENTA DESACTIVADA u otro específico, lo mostramos
+      if (err.message === "CUENTA DESACTIVADA") {
+        setError("CUENTA DESACTIVADA");
+      } else {
+        setError('ERROR DE CONEXIÓN'); 
+      }
+    } 
     finally { setLoading(false); } 
   };
+  
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
       <div className="w-full max-w-sm bg-white rounded-[48px] shadow-2xl p-14 border relative overflow-hidden">
@@ -1161,7 +1197,7 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
         <form onSubmit={handleLogin} className="space-y-6 mt-12">
           <input type="text" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="DNI" />
           <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="CLAVE" />
-          {error && <div className="text-red-500 text-[10px] font-black text-center uppercase">{error}</div>}
+          {error && <div className="text-red-500 text-[10px] font-black text-center uppercase animate-pulse">{error}</div>}
           <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-black py-5 rounded-[20px] shadow-xl hover:bg-slate-800 transition-all disabled:opacity-50 text-sm uppercase tracking-widest">
             {loading ? 'CONECTANDO...' : 'INGRESAR'}
           </button>
