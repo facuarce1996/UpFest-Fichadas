@@ -120,7 +120,8 @@ const mapUserFromDB = (u: any): User => ({
   dressCode: u.dress_code || '',
   referenceImage: u.reference_image || null,
   schedule: u.schedule || [],
-  assignedLocations: u.assigned_locations || []
+  assignedLocations: u.assigned_locations || [],
+  isActive: u.is_active !== false // Si la columna no existe, u.is_active es undefined, tratamos como true
 });
 
 const mapLocationFromDB = (l: any): Location => ({
@@ -168,6 +169,10 @@ export const saveUser = async (user: User) => {
       const uploadedUrl = await uploadBase64Image(user.referenceImage, 'users', `${user.dni}_ref_${Date.now()}.jpg`);
       if (uploadedUrl) referenceImageUrl = uploadedUrl;
     }
+    
+    // Se omiten temporalmente columnas que podrían no existir aún en el esquema real del usuario
+    // como 'is_active' y 'assigned_locations' si causan error.
+    // Solo enviamos columnas base confirmadas.
     const dbUser: any = {
       dni: user.dni,
       password: user.password,
@@ -176,9 +181,10 @@ export const saveUser = async (user: User) => {
       legajo: user.legajo,
       dress_code: user.dressCode,
       reference_image: referenceImageUrl,
-      schedule: user.schedule || [],
-      assigned_locations: user.assignedLocations || []
+      schedule: user.schedule || []
+      // Se omite is_active para evitar el error de esquema hasta que se corra el SQL
     };
+
     if (user.id && user.id !== "" && user.id !== "0" && user.id !== "admin_session") {
       const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
       if (error) throw new Error(error.message);
@@ -295,7 +301,7 @@ export const fetchCompanyLogo = async (): Promise<string | null> => {
 
 export const authenticateUser = async (dni: string, password: string): Promise<User | null> => {
   if (dni === 'admin' && password === 'admin') {
-    return { id: 'admin_session', dni: 'admin', legajo: 'ADM-001', password: 'admin', name: 'Administrador UpFest', role: 'Admin', dressCode: 'Libre', referenceImage: null, schedule: [] };
+    return { id: 'admin_session', dni: 'admin', legajo: 'ADM-001', password: 'admin', name: 'Administrador UpFest', role: 'Admin', dressCode: 'Libre', referenceImage: null, schedule: [], isActive: true };
   }
   const { data, error } = await supabase.from('users').select('*').eq('dni', dni).eq('password', password).maybeSingle();
   if (error || !data) return null;

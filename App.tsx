@@ -12,7 +12,7 @@ import {
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -422,6 +422,9 @@ const AdminDashboard = () => {
   const [formSaving, setFormSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -438,8 +441,8 @@ const AdminDashboard = () => {
   useEffect(() => { load(); }, []);
 
   useEffect(() => { 
-    if (editingUser) setFormData({ ...editingUser, schedule: editingUser.schedule || [], assignedLocations: editingUser.assignedLocations || [] }); 
-    else setFormData({ role: 'Mozo', schedule: [], assignedLocations: [], password: '1234', legajo: '' }); 
+    if (editingUser) setFormData({ ...editingUser, schedule: editingUser.schedule || [], assignedLocations: editingUser.assignedLocations || [], isActive: editingUser.isActive }); 
+    else setFormData({ role: 'Mozo', schedule: [], assignedLocations: [], password: '1234', legajo: '', isActive: true }); 
   }, [editingUser, isCreating]);
 
   const handleDownloadTemplate = () => {
@@ -492,7 +495,8 @@ const AdminDashboard = () => {
             dressCode: String(row['Codigo Vestimenta'] || ''),
             schedule: schedule,
             referenceImage: null,
-            assignedLocations: []
+            assignedLocations: [],
+            isActive: true
           };
           if (newUser.name && newUser.dni) await saveUser(newUser);
         }
@@ -522,6 +526,19 @@ const AdminDashboard = () => {
       alert("Error al guardar: " + err.message); 
     } 
     finally { setFormSaving(false); }
+  };
+
+  const handleDeleteUserDirect = async (userId: string, userName: string) => {
+    if (!confirm(`¿CONFIRMAS BORRAR A ${userName.toUpperCase()}? ESTA ACCIÓN NO SE PUEDE DESHACER.`)) return;
+    setIsDeletingUser(userId);
+    try {
+      await deleteUser(userId);
+      setUsers(prev => prev.filter(u => u.id !== userId));
+    } catch (err: any) {
+      alert("Error al borrar: " + err.message);
+    } finally {
+      setIsDeletingUser(null);
+    }
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -556,6 +573,13 @@ const AdminDashboard = () => {
     setFormData({ ...formData, schedule: newSchedules });
   };
 
+  const filteredUsers = users.filter(u => {
+    if (filterStatus === 'all') return true;
+    if (filterStatus === 'active') return u.isActive;
+    if (filterStatus === 'inactive') return !u.isActive;
+    return true;
+  });
+
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
@@ -576,19 +600,59 @@ const AdminDashboard = () => {
           </button>
         </div>
       </div>
+
+      <div className="flex items-center gap-2 mb-4 bg-slate-100 p-1 rounded-2xl w-fit">
+        {[
+          { id: 'all', label: 'Todos' },
+          { id: 'active', label: 'Activos' },
+          { id: 'inactive', label: 'Inactivos' }
+        ].map(btn => (
+          <button 
+            key={btn.id} 
+            onClick={() => setFilterStatus(btn.id as any)}
+            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filterStatus === btn.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            {btn.label}
+          </button>
+        ))}
+      </div>
       
       <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm">
          <div className="overflow-x-auto"><table className="w-full text-left border-collapse">
-           <thead><tr className="bg-slate-50 border-b"><th className="p-6 text-[10px] font-black uppercase">Colaborador</th><th className="p-6 text-[10px] font-black uppercase">DNI</th><th className="p-6 text-[10px] font-black uppercase">Rol</th><th className="p-6 text-right">Acciones</th></tr></thead>
+           <thead><tr className="bg-slate-50 border-b"><th className="p-6 text-[10px] font-black uppercase">Colaborador</th><th className="p-6 text-[10px] font-black uppercase">DNI</th><th className="p-6 text-[10px] font-black uppercase">Rol</th><th className="p-6 text-[10px] font-black uppercase">Estado</th><th className="p-6 text-right">Acciones</th></tr></thead>
            <tbody className="divide-y">
-             {users.length === 0 ? (
-               <tr><td colSpan={4} className="p-20 text-center text-slate-300 font-black uppercase italic">Sin personal cargado</td></tr>
-             ) : users.map(u => (
-               <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                 <td className="p-6 flex items-center gap-4"><div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0">{u.referenceImage && <img src={u.referenceImage} className="w-full h-full object-cover" />}</div><span className="font-black text-slate-800 uppercase text-sm">{u.name}</span></td>
+             {filteredUsers.length === 0 ? (
+               <tr><td colSpan={5} className="p-20 text-center text-slate-300 font-black uppercase italic">Sin personal para mostrar</td></tr>
+             ) : filteredUsers.map(u => (
+               <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${!u.isActive ? 'opacity-60' : ''}`}>
+                 <td className="p-6 flex items-center gap-4">
+                   <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0">
+                     {u.referenceImage && <img src={u.referenceImage} className="w-full h-full object-cover" />}
+                   </div>
+                   <span className="font-black text-slate-800 uppercase text-sm">{u.name}</span>
+                 </td>
                  <td className="p-6 text-xs font-bold text-slate-500 font-mono">{u.dni}</td>
                  <td className="p-6 text-[10px] font-black uppercase text-slate-700">{u.role}</td>
-                 <td className="p-6 text-right"><button onClick={() => setEditingUser(u)} className="p-3 text-slate-300 hover:text-orange-600 transition-colors"><Pencil size={18}/></button></td>
+                 <td className="p-6">
+                   <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${u.isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                     {u.isActive ? 'Activo' : 'Inactivo'}
+                   </span>
+                 </td>
+                 <td className="p-6 text-right">
+                   <div className="flex items-center justify-end gap-1">
+                     <button onClick={() => setEditingUser(u)} className="p-3 text-slate-300 hover:text-orange-600 transition-colors" title="Editar">
+                       <Pencil size={18}/>
+                     </button>
+                     <button 
+                       disabled={isDeletingUser === u.id} 
+                       onClick={() => handleDeleteUserDirect(u.id, u.name)} 
+                       className="p-3 text-slate-300 hover:text-rose-600 transition-colors" 
+                       title="Borrar Definitivamente"
+                     >
+                       {isDeletingUser === u.id ? <RefreshCw className="animate-spin" size={18}/> : <Trash2 size={18}/>}
+                     </button>
+                   </div>
+                 </td>
                </tr>
              ))}
            </tbody>
@@ -598,7 +662,6 @@ const AdminDashboard = () => {
       {(isCreating || editingUser) && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-2 md:p-4">
           <div className="bg-white rounded-[40px] md:rounded-[48px] w-full max-w-5xl shadow-2xl overflow-y-auto max-h-[95vh] relative animate-in zoom-in-95 duration-300">
-            {/* --- CARTEL DE ÉXITO REFORZADO --- */}
             {saveSuccess && (
               <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[200] flex flex-col items-center justify-center animate-in fade-in duration-300">
                 <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-bounce shadow-xl shadow-emerald-50 border-4 border-white">
@@ -611,9 +674,22 @@ const AdminDashboard = () => {
 
             <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="absolute top-6 right-6 md:top-8 md:right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
             <form onSubmit={handleSaveUser} className="p-6 md:p-12 space-y-8 md:space-y-12">
-              <div className="border-b pb-6">
-                <h3 className="font-black text-3xl md:text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">SISTEMA RRHH - UPFEST</p>
+              <div className="border-b pb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+                <div>
+                  <h3 className="font-black text-3xl md:text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">SISTEMA RRHH - UPFEST</p>
+                </div>
+                
+                <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border">
+                   <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">ESTADO:</span>
+                   <button 
+                      type="button" 
+                      onClick={() => setFormData({...formData, isActive: !formData.isActive})}
+                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.isActive ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-rose-500 text-white shadow-lg shadow-rose-100'}`}
+                   >
+                     {formData.isActive ? 'ACTIVO' : 'INACTIVO'}
+                   </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 md:gap-12">
@@ -748,24 +824,172 @@ const AdminDashboard = () => {
 const LocationsDashboard = () => {
     const [locations, setLocations] = useState<Location[]>([]);
     const [loading, setLoading] = useState(true);
+    const [editingLoc, setEditingLoc] = useState<Location | null>(null);
+    const [isCreatingLoc, setIsCreatingLoc] = useState(false);
+    const [locSaving, setLocSaving] = useState(false);
+    const [saveSuccess, setSaveSuccess] = useState(false);
+    const [locFormData, setLocFormData] = useState<Partial<Location>>({});
     const [currentLocId, setCurrentLocId] = useState(localStorage.getItem('upfest_terminal_location_id'));
-    const load = async () => { try { setLocations(await fetchLocations()); } finally { setLoading(false); } };
+    
+    const load = async () => { 
+      setLoading(true); 
+      try { 
+        setLocations(await fetchLocations()); 
+      } finally { 
+        setLoading(false); 
+      } 
+    };
+
     useEffect(() => { load(); }, []);
+
+    useEffect(() => {
+      if (editingLoc) setLocFormData({ ...editingLoc });
+      else setLocFormData({ name: '', address: '', city: '', lat: 0, lng: 0, radiusMeters: 100 });
+    }, [editingLoc, isCreatingLoc]);
+
+    const handleSaveLoc = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!locFormData.name) return alert("Nombre obligatorio");
+      setLocSaving(true);
+      try {
+        await saveLocation(locFormData as Location);
+        setSaveSuccess(true);
+        setTimeout(() => {
+          setSaveSuccess(false);
+          setEditingLoc(null);
+          setIsCreatingLoc(false);
+          load();
+        }, 1500);
+      } catch (err: any) {
+        alert("Error al guardar sede: " + err.message);
+      } finally {
+        setLocSaving(false);
+      }
+    };
+
+    const handleDeleteLoc = async (locId: string, name: string) => {
+      if (!confirm(`¿CONFIRMAS ELIMINAR LA SEDE "${name.toUpperCase()}"?`)) return;
+      try {
+        await deleteLocation(locId);
+        load();
+      } catch (err: any) {
+        alert("Error al eliminar: " + err.message);
+      }
+    };
+
+    const fetchCurrentGPS = async () => {
+      try {
+        const pos = await getCurrentPosition();
+        setLocFormData({ ...locFormData, lat: pos.coords.latitude, lng: pos.coords.longitude });
+      } catch (e) {
+        alert("No se pudo obtener la ubicación GPS.");
+      }
+    };
+
     return (
         <div className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in">
-            <h1 className="text-3xl font-black text-slate-900 mb-8 uppercase tracking-tighter">Sedes / Salones</h1>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {loading ? <div className="col-span-full py-20 text-center text-slate-300 font-black uppercase">Cargando...</div> : locations.map(loc => (
-                <div key={loc.id} className={`p-8 bg-white border rounded-[40px] shadow-sm transition-all ${currentLocId === loc.id ? 'border-orange-500 ring-8 ring-orange-50' : 'border-slate-100'}`}>
-                  <div className={`w-16 h-16 rounded-[24px] flex items-center justify-center mb-6 ${currentLocId === loc.id ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-400'}`}><Building size={24}/></div>
-                  <h3 className="font-black text-2xl text-slate-900 uppercase tracking-tighter mb-2">{loc.name}</h3>
-                  <p className="text-xs font-bold text-slate-500 mb-8"><MapPin size={14} className="inline mr-2"/> {loc.address}</p>
-                  <button onClick={() => { localStorage.setItem('upfest_terminal_location_id', loc.id); setCurrentLocId(loc.id); alert('Sede vinculada'); }} className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest ${currentLocId === loc.id ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-900 text-white'}`}>
-                    {currentLocId === loc.id ? 'VINCULADA' : 'VINCULAR TERMINAL'}
+            <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
+              <div className="text-center md:text-left">
+                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter leading-none">Sedes / Salones</h1>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 italic">CONFIGURACIÓN DE GEOCERCAS</p>
+              </div>
+              <button onClick={() => setIsCreatingLoc(true)} className="w-full md:w-auto bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+                <Plus size={18} /> Nueva Sede
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+              {loading ? (
+                <div className="col-span-full py-20 text-center text-slate-300 font-black uppercase">Cargando sedes...</div>
+              ) : locations.map(loc => (
+                <div key={loc.id} className={`p-8 bg-white border rounded-[40px] shadow-sm transition-all relative group ${currentLocId === loc.id ? 'border-orange-500 ring-8 ring-orange-50' : 'border-slate-100'}`}>
+                  <button onClick={() => setEditingLoc(loc)} className="absolute top-6 right-6 p-3 text-slate-300 hover:text-orange-600 transition-colors">
+                    <Pencil size={18}/>
                   </button>
+                  <div className={`w-16 h-16 rounded-[24px] flex items-center justify-center mb-6 ${currentLocId === loc.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-100' : 'bg-slate-50 text-slate-400'}`}>
+                    <Building size={24}/>
+                  </div>
+                  <h3 className="font-black text-2xl text-slate-900 uppercase tracking-tighter mb-2 pr-10">{loc.name}</h3>
+                  <div className="space-y-2 mb-8">
+                    <p className="text-xs font-bold text-slate-500 flex items-center gap-2"><MapPin size={14} className="text-slate-300"/> {loc.address || 'Sin dirección'}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Navigation size={14} className="text-slate-300"/> {loc.lat.toFixed(6)}, {loc.lng.toFixed(6)}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Target size={14} className="text-slate-300"/> Radio: {loc.radiusMeters}m</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { localStorage.setItem('upfest_terminal_location_id', loc.id); setCurrentLocId(loc.id); alert('Sede vinculada'); }} className={`flex-[2] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${currentLocId === loc.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-slate-900 text-white'}`}>
+                      {currentLocId === loc.id ? 'VINCULADA' : 'VINCULAR TERMINAL'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
+
+            {(isCreatingLoc || editingLoc) && (
+              <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+                <div className="bg-white rounded-[40px] w-full max-w-2xl shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
+                  {saveSuccess && (
+                    <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[200] flex flex-col items-center justify-center animate-in fade-in duration-300">
+                      <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-bounce shadow-xl border-4 border-white">
+                        <Check size={48} className="text-emerald-600" />
+                      </div>
+                      <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900">CAMBIOS REALIZADOS</h3>
+                    </div>
+                  )}
+                  
+                  <button type="button" onClick={() => { setEditingLoc(null); setIsCreatingLoc(false); }} className="absolute top-8 right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
+                  
+                  <form onSubmit={handleSaveLoc} className="p-10 space-y-8">
+                    <div className="border-b pb-6">
+                      <h3 className="font-black text-3xl text-slate-900 uppercase tracking-tighter">{editingLoc ? 'EDITAR SEDE' : 'NUEVA SEDE'}</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="col-span-full space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nombre del Salón / Sede</label>
+                        <input type="text" value={locFormData.name || ''} onChange={e => setLocFormData({...locFormData, name: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none uppercase text-sm border border-transparent focus:border-slate-200" required />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Dirección</label>
+                        <input type="text" value={locFormData.address || ''} onChange={e => setLocFormData({...locFormData, address: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Ciudad</label>
+                        <input type="text" value={locFormData.city || ''} onChange={e => setLocFormData({...locFormData, city: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Latitud</label>
+                        <input type="number" step="any" value={locFormData.lat || 0} onChange={e => setLocFormData({...locFormData, lat: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Longitud</label>
+                        <input type="number" step="any" value={locFormData.lng || 0} onChange={e => setLocFormData({...locFormData, lng: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
+                      </div>
+                      <div className="col-span-full flex gap-4">
+                        <div className="flex-1 space-y-2">
+                          <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Radio de Tolerancia (Metros)</label>
+                          <input type="number" value={locFormData.radiusMeters || 100} onChange={e => setLocFormData({...locFormData, radiusMeters: parseInt(e.target.value)})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
+                        </div>
+                        <div className="flex-1 pt-6">
+                           <button type="button" onClick={fetchCurrentGPS} className="w-full h-full bg-orange-50 text-orange-600 border-2 border-orange-100 rounded-[20px] font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-orange-100 transition-all">
+                              <Navigation size={18}/> Usar mi GPS
+                           </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col md:flex-row gap-4 pt-4">
+                      {editingLoc && (
+                        <button type="button" onClick={() => handleDeleteLoc(editingLoc.id, editingLoc.name)} className="py-5 bg-rose-50 text-rose-600 rounded-[24px] font-black uppercase tracking-widest text-[10px] px-8 hover:bg-rose-100 transition-colors">ELIMINAR</button>
+                      )}
+                      <button type="button" onClick={() => { setEditingLoc(null); setIsCreatingLoc(false); }} className="flex-1 py-5 bg-white border-2 border-slate-100 text-slate-400 rounded-[24px] font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-colors">CANCELAR</button>
+                      <button type="submit" disabled={locSaving} className="flex-[2] py-5 bg-[#0f172a] text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] shadow-2xl flex items-center justify-center gap-3 transition-all hover:bg-slate-800 disabled:opacity-50">
+                        {locSaving ? <RefreshCw className="animate-spin" size={18}/> : 'GUARDAR SEDE'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
         </div>
     );
 };

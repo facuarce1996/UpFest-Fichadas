@@ -66,6 +66,7 @@ export interface User {
   hireDate?: string;
   workType?: string;
   address?: string;
+  isActive: boolean; // Nuevo campo
 }
 
 export interface LogEntry {
