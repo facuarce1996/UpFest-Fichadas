@@ -127,20 +127,82 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   const handleExportExcel = () => {
     if (adminLogs.length === 0) return alert("No hay datos para exportar.");
-    const dataToExport = adminLogs.map(log => ({
-      'ID': log.id,
-      'LEGAJO': log.legajo,
-      'NOMBRE': log.userName,
-      'FECHA': new Date(log.timestamp).toLocaleDateString('es-AR'),
-      'HORA': new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
-      'TIPO': log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO',
-      'SEDE': log.locationName,
-      'DESCRIPCION IA': log.aiFeedback
-    }));
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    
+    // Agrupamos fichadas por usuario para realizar el emparejamiento
+    const userMap = new Map<string, LogEntry[]>();
+    adminLogs.forEach(log => {
+      const userLogs = userMap.get(log.userId) || [];
+      userLogs.push(log);
+      userMap.set(log.userId, userLogs);
+    });
+
+    const reportData: any[] = [];
+
+    userMap.forEach((logs) => {
+      // Ordenamos cronológicamente para buscar pares ingreso/egreso
+      const sorted = [...logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
+      for (let i = 0; i < sorted.length; i++) {
+        const current = sorted[i];
+        
+        if (current.type === 'CHECK_IN') {
+          const next = sorted[i + 1];
+          // Si el siguiente registro es un egreso, los unimos en una fila
+          if (next && next.type === 'CHECK_OUT') {
+            reportData.push({
+              'LEGAJO': current.legajo,
+              'NOMBRE': current.userName,
+              'FECHA': new Date(current.timestamp).toLocaleDateString('es-AR'),
+              'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'HORA EGRESO': new Date(next.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'VALIDA ROSTRO': current.identityStatus === 'MATCH' ? 'SI' : 'NO',
+              'VALIDA VESTIMENTA': current.dressCodeStatus === 'PASS' ? 'SI' : 'NO',
+              'SEDE': current.locationName,
+              'DESCRIPCION IA': current.aiFeedback
+            });
+            i++; // Saltamos el egreso ya que fue emparejado
+          } else {
+            // Ingreso sin egreso registrado (o aún trabajando)
+            reportData.push({
+              'LEGAJO': current.legajo,
+              'NOMBRE': current.userName,
+              'FECHA': new Date(current.timestamp).toLocaleDateString('es-AR'),
+              'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'HORA EGRESO': '---',
+              'VALIDA ROSTRO': current.identityStatus === 'MATCH' ? 'SI' : 'NO',
+              'VALIDA VESTIMENTA': current.dressCodeStatus === 'PASS' ? 'SI' : 'NO',
+              'SEDE': current.locationName,
+              'DESCRIPCION IA': current.aiFeedback
+            });
+          }
+        } else if (current.type === 'CHECK_OUT') {
+          // Egreso sin ingreso previo (huérfano)
+          reportData.push({
+            'LEGAJO': current.legajo,
+            'NOMBRE': current.userName,
+            'FECHA': new Date(current.timestamp).toLocaleDateString('es-AR'),
+            'HORA INGRESO': '---',
+            'HORA EGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+            'VALIDA ROSTRO': 'NO',
+            'VALIDA VESTIMENTA': 'NO',
+            'SEDE': current.locationName,
+            'DESCRIPCION IA': 'Egreso registrado sin ingreso previo'
+          });
+        }
+      }
+    });
+
+    // Ordenar por fecha descendente
+    reportData.sort((a, b) => {
+      const dateA = new Date(a.FECHA.split('/').reverse().join('-')).getTime();
+      const dateB = new Date(b.FECHA.split('/').reverse().join('-')).getTime();
+      return dateB - dateA;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(reportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Fichadas");
-    XLSX.writeFile(wb, `Reporte_UpFest_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Fichadas Consolidadas");
+    XLSX.writeFile(wb, `Reporte_UpFest_Fichadas_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   useEffect(() => {
