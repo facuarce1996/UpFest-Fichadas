@@ -220,8 +220,13 @@ export const saveUser = async (user: User) => {
 };
 
 export const deleteUser = async (userId: string) => {
-  const { error } = await supabase.from('users').delete().eq('id', userId);
-  if (error) throw new Error(error.message);
+  // 1. Primero borramos los logs para evitar violación de clave foránea (logs_user_id_fkey)
+  const { error: logsError } = await supabase.from('logs').delete().eq('user_id', userId);
+  if (logsError) throw new Error(`Error al borrar historial del usuario: ${logsError.message}`);
+  
+  // 2. Ahora borramos el usuario
+  const { error: userError } = await supabase.from('users').delete().eq('id', userId);
+  if (userError) throw new Error(`Error al borrar usuario: ${userError.message}`);
 }
 
 export const fetchLocations = async (): Promise<Location[]> => {

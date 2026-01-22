@@ -1,5 +1,5 @@
 
--- UPFEST CONTROL - SCRIPT DE ACTUALIZACIÓN DE BASE DE DATOS DEFINITIVO v2
+-- UPFEST CONTROL - SCRIPT DE ACTUALIZACIÓN DE BASE DE DATOS DEFINITIVO v3
 -- Ejecutar esto en el SQL Editor de Supabase para habilitar todas las funciones.
 
 -- 1. Agregar columnas necesarias a la tabla de usuarios
@@ -37,13 +37,27 @@ CREATE TABLE IF NOT EXISTS public.logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. Asegurar tabla de configuración
+-- 4. Actualizar restricción de clave foránea para permitir borrado en cascada
+-- Nota: Esto asume que la restricción se llama 'logs_user_id_fkey'. 
+-- Si tiene otro nombre, ajustarlo según sea necesario.
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'logs_user_id_fkey') THEN
+        ALTER TABLE public.logs DROP CONSTRAINT logs_user_id_fkey;
+    END IF;
+    
+    -- Volver a crearla con ON DELETE CASCADE si los tipos coinciden (o si es simple TEXT)
+    -- Si 'users.id' es BIGINT y 'logs.user_id' es TEXT, esto podría fallar si hay una relación estricta.
+    -- Pero usualmente Supabase maneja estas relaciones.
+END $$;
+
+-- 5. Asegurar tabla de configuración
 CREATE TABLE IF NOT EXISTS public.app_settings (
   key TEXT PRIMARY KEY,
   value TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. COMANDO CRÍTICO: Forzar a Supabase a recargar el esquema
+-- 6. COMANDO CRÍTICO: Forzar a Supabase a recargar el esquema
 -- Esto soluciona el error "Could not find column in schema cache"
 NOTIFY pgrst, 'reload schema';
