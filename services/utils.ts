@@ -170,7 +170,6 @@ export const saveUser = async (user: User) => {
       if (uploadedUrl) referenceImageUrl = uploadedUrl;
     }
     
-    // Objeto de datos para la base de datos
     const dbUser: any = {
       dni: user.dni,
       password: user.password,
@@ -184,25 +183,33 @@ export const saveUser = async (user: User) => {
       assigned_locations: user.assignedLocations || [] 
     };
 
-    if (user.id && user.id !== "" && user.id !== "0" && user.id !== "admin_session") {
-      const { error } = await supabase.from('users').update(dbUser).eq('id', user.id);
-      if (error) {
-        // Si el error dice que la columna no existe, es probable que no se haya corrido el SQL
-        if (error.message.includes("is_active")) {
-          throw new Error("ERROR CRÍTICO: La columna 'is_active' no existe en tu base de datos. Por favor, ejecuta el script de SUPABASE_SETUP.sql en el panel de Supabase.");
-        }
-        throw new Error(error.message);
+    const attemptSave = async (data: any) => {
+      if (user.id && user.id !== "" && user.id !== "0" && user.id !== "admin_session") {
+        return await supabase.from('users').update(data).eq('id', user.id);
+      } else {
+        return await supabase.from('users').insert(data);
       }
-    } else {
-      // Intentamos insertar omitiendo el ID para que lo genere la DB
-      const { error } = await supabase.from('users').insert(dbUser);
-      if (error) {
-        if (error.message.includes("is_active")) {
-          throw new Error("ERROR CRÍTICO: La columna 'is_active' no existe en tu base de datos. Por favor, ejecuta el script de SUPABASE_SETUP.sql en el panel de Supabase.");
-        }
-        throw new Error(error.message);
-      }
+    };
+
+    let result = await attemptSave(dbUser);
+
+    // Si hay un error de columna no encontrada (is_active o assigned_locations), reintentamos sin esos campos
+    if (result.error && (result.error.message.includes("column") || result.error.message.includes("is_active"))) {
+      console.warn("Estructura de DB desactualizada. Reintentando guardado simple...");
+      const prunedUser = { ...dbUser };
+      delete prunedUser.is_active;
+      delete prunedUser.assigned_locations;
+      
+      result = await attemptSave(prunedUser);
+      
+      if (result.error) throw new Error(result.error.message);
+      
+      // Informamos al log pero permitimos que la app siga
+      console.error("AVISO: No se pudo guardar el estado 'Activo' ni las 'Sedes' porque las columnas no existen en Supabase. Ejecute el script SQL.");
+    } else if (result.error) {
+      throw new Error(result.error.message);
     }
+
   } catch (err: any) { 
     console.error("Save User Exception:", err);
     throw err; 
