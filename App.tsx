@@ -303,7 +303,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       } catch (e) { console.warn("Geo error", e); }
       setLoadingMsg('IA: Analizando Identidad...');
       
-      let iaResult;
+      let iaResult: ValidationResult;
       try {
         iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
       } catch (err: any) {
@@ -323,7 +323,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const newLog: LogEntry = {
         id: '', userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
         locationId: deviceLocation?.id || 'manual', locationName: deviceLocation?.name || 'Manual', locationStatus: locStatus,
-        dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL', identityStatus: iaResult.identityStatus === 'MATCH' ? 'MATCH' : 'NO_MATCH',
+        dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL', identityStatus: iaResult.identityMatch ? 'MATCH' : 'NO_MATCH',
         photoEvidence: photo, aiFeedback: iaResult.description, scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
       };
       await addLog(newLog);
