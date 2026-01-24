@@ -56,91 +56,45 @@ export const analyzeCheckIn = async (
   dressCodeDescription: string,
   referenceImage: string | null
 ): Promise<ValidationResult> => {
-  const MAX_RETRIES = 1;
-  let attempt = 0;
-
-  const executeAnalysis = async (): Promise<ValidationResult> => {
-    // Instanciamos el cliente justo antes de usarlo para capturar la API_KEY del entorno
-    // No usamos una validación manual previa para evitar falsos negativos en móviles
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
-    const parts: Part[] = [];
-    let refBase64: string | null = null;
-    
-    if (referenceImage) {
-        if (referenceImage.startsWith('http')) {
-            refBase64 = await getBase64FromUrl(referenceImage);
-        } else {
-            refBase64 = cleanBase64(referenceImage);
-        }
-    }
-
-    const checkInBase64 = cleanBase64(checkInImage);
-    if (!checkInBase64) throw new Error("Captura de cámara vacía.");
-
-    const prompt = `Analiza para la empresa UpFest:
-      1. IDENTIDAD: ${refBase64 ? 'Compara la foto de referencia (1ra) con la actual (2da). ¿Es la misma persona?' : '¿Se detecta un rostro humano claro en la imagen?'}
-      2. VESTIMENTA: ¿Cumple con el código: "${dressCodeDescription || 'Uniforme estándar'}"?
-      Responde estrictamente en formato JSON según el esquema proporcionado.`;
-
-    if (refBase64) {
-      parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
-    }
-    parts.push({ inlineData: { mimeType: "image/jpeg", data: checkInBase64 } });
-    parts.push({ text: prompt });
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview", 
-      contents: { parts },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: validationSchema,
-        temperature: 0.1
-      },
-    });
-
-    const resultText = response.text;
-    if (!resultText) throw new Error("La IA devolvió una respuesta vacía.");
-    return JSON.parse(resultText);
-  };
-
-  while (attempt <= MAX_RETRIES) {
-    try {
-      return await executeAnalysis();
-    } catch (error: any) {
-      console.error("Gemini Error:", error);
-      
-      const errorMsg = error?.message || "";
-      
-      // Si el error indica falta de API Key, damos una instrucción clara
-      if (errorMsg.includes("API Key") || errorMsg.includes("apiKey")) {
-        return {
-          identityMatch: false,
-          dressCodeMatches: false,
-          description: "Error IA: API Key no detectada. Por favor, asegúrese de haber seleccionado una llave en el icono de llave del panel lateral (en móviles puede requerir abrir el menú de la plataforma).",
-          confidence: 0
-        };
+  // Siempre creamos una instancia nueva para capturar la API_KEY más reciente del entorno
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const parts: Part[] = [];
+  let refBase64: string | null = null;
+  
+  if (referenceImage) {
+      if (referenceImage.startsWith('http')) {
+          refBase64 = await getBase64FromUrl(referenceImage);
+      } else {
+          refBase64 = cleanBase64(referenceImage);
       }
-
-      if (attempt < MAX_RETRIES) {
-        attempt++;
-        await new Promise(r => setTimeout(r, 1000));
-        continue;
-      }
-
-      return { 
-          identityMatch: false, 
-          dressCodeMatches: false, 
-          description: `Error IA: ${errorMsg}`, 
-          confidence: 0 
-      };
-    }
   }
 
-  return { 
-    identityMatch: false, 
-    dressCodeMatches: false, 
-    description: "Fallo de conexión tras varios intentos.", 
-    confidence: 0 
-  };
+  const checkInBase64 = cleanBase64(checkInImage);
+  if (!checkInBase64) throw new Error("Captura de cámara vacía.");
+
+  const prompt = `Analiza para la empresa UpFest:
+    1. IDENTIDAD: ${refBase64 ? 'Compara la foto de referencia (1ra) con la actual (2da). ¿Es la misma persona?' : '¿Se detecta un rostro humano claro en la imagen?'}
+    2. VESTIMENTA: ¿Cumple con el código: "${dressCodeDescription || 'Uniforme estándar'}"?
+    Responde estrictamente en formato JSON según el esquema proporcionado.`;
+
+  if (refBase64) {
+    parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
+  }
+  parts.push({ inlineData: { mimeType: "image/jpeg", data: checkInBase64 } });
+  parts.push({ text: prompt });
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview", 
+    contents: { parts },
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: validationSchema,
+      temperature: 0.1
+    },
+  });
+
+  const resultText = response.text;
+  if (!resultText) throw new Error("La IA devolvió una respuesta vacía.");
+  return JSON.parse(resultText);
 };

@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 
 // Polyfill robusto para asegurar que process.env exista en el navegador
+// y evitar errores al inicializar GoogleGenAI.
 if (typeof window !== 'undefined') {
   if (typeof (window as any).process === 'undefined') {
     (window as any).process = { env: {} };

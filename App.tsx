@@ -18,7 +18,14 @@ import * as XLSX from 'xlsx';
 
 // --- Helpers de Plataforma ---
 const getAIStudio = () => (window as any).aistudio;
-const isAIStudio = !!(getAIStudio() && getAIStudio().openSelectKey);
+
+const checkApiKeyStatus = async () => {
+  const aiStudio = getAIStudio();
+  if (aiStudio && aiStudio.hasSelectedApiKey) {
+    return await aiStudio.hasSelectedApiKey();
+  }
+  return true; // Si no estamos en AI Studio, asumimos que no hay selector
+};
 
 const handleOpenApiKeyDialog = async () => {
   const aiStudio = getAIStudio();
@@ -61,6 +68,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [showAlerts, setShowAlerts] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(true);
   
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
@@ -72,6 +80,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    checkApiKeyStatus().then(setHasApiKey);
+  }, []);
 
   useEffect(() => {
     if (!successAction) return;
@@ -246,7 +258,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const dateAStr = a['FECHA INGRESO'] !== '---' ? a['FECHA INGRESO'] : a['FECHA EGRESO'];
       const dateBStr = b['FECHA INGRESO'] !== '---' ? b['FECHA INGRESO'] : b['FECHA EGRESO'];
       const dateA = new Date(dateAStr.split('/').reverse().join('-')).getTime();
-      const dateB = new Date(dateBStr.split('/').reverse().join('-')).getTime();
+      const dateB = new Date(dateAStr.split('/').reverse().join('-')).getTime();
       return dateB - dateA;
     });
 
@@ -290,20 +302,38 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         }
       } catch (e) { console.warn("Geo error", e); }
       setLoadingMsg('IA: Analizando Identidad...');
-      const iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
+      
+      let iaResult;
+      try {
+        iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
+      } catch (err: any) {
+        // Si hay un error de autenticación, solicitamos abrir el selector de llaves
+        if (err.message.includes("401") || err.message.includes("Key") || err.message.includes("403")) {
+          setLoadingMsg("CONFIGURANDO LLAVE...");
+          await handleOpenApiKeyDialog();
+          // Intentamos nuevamente después de abrir el selector
+          iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
+        } else {
+          throw err;
+        }
+      }
+
       const lastLog = await fetchLastLog(user.id);
       const type = (!lastLog || lastLog.type === 'CHECK_OUT') ? 'CHECK_IN' : 'CHECK_OUT';
       const newLog: LogEntry = {
         id: '', userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
         locationId: deviceLocation?.id || 'manual', locationName: deviceLocation?.name || 'Manual', locationStatus: locStatus,
-        dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL', identityStatus: iaResult.identityMatch ? 'MATCH' : 'NO_MATCH',
+        dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL', identityStatus: iaResult.identityStatus === 'MATCH' ? 'MATCH' : 'NO_MATCH',
         photoEvidence: photo, aiFeedback: iaResult.description, scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
       };
       await addLog(newLog);
       setPhoto(null);
       loadData();
       setSuccessAction({ type: type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO', countdown: 7 });
-    } catch (error: any) { alert("Error: " + error.message); } finally { setLoading(false); setLoadingMsg(''); }
+    } catch (error: any) { 
+      alert("Error en validación: " + error.message + ". Asegúrese de tener una llave configurada.");
+      await handleOpenApiKeyDialog();
+    } finally { setLoading(false); setLoadingMsg(''); }
   };
 
   const capturePhoto = () => {
@@ -338,6 +368,19 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const incidentLogs = adminLogs.filter(l => l.dressCodeStatus === 'FAIL' || l.identityStatus === 'NO_MATCH');
     return (
       <div className="max-w-full mx-auto p-4 md:p-8 space-y-6 md:space-y-8 animate-in fade-in duration-500">
+        {!hasApiKey && (
+           <div className="bg-blue-600 text-white p-6 rounded-[32px] flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl shadow-blue-200">
+              <div className="flex items-center gap-4">
+                 <Key size={32} className="animate-pulse" />
+                 <div>
+                    <h4 className="font-black uppercase tracking-tighter">Llave de IA no configurada</h4>
+                    <p className="text-[10px] font-bold uppercase opacity-80">Debe seleccionar una Paid Key para habilitar la validación biométrica.</p>
+                 </div>
+              </div>
+              <button onClick={handleOpenApiKeyDialog} className="bg-white text-blue-600 px-8 py-3 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg hover:bg-slate-50 transition-all">CONFIGURAR AHORA</button>
+           </div>
+        )}
+
         <div className="bg-white rounded-[24px] md:rounded-[32px] p-5 md:p-10 border border-slate-200 shadow-sm overflow-hidden">
            <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-6">
               <div className="text-center md:text-left">
@@ -464,6 +507,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 relative">
+      {!hasApiKey && (
+         <div className="bg-amber-50 border-2 border-amber-200 p-4 rounded-3xl flex items-center gap-4 text-amber-800">
+            <AlertTriangle className="shrink-0" />
+            <p className="text-[10px] font-black uppercase tracking-widest leading-tight">Configuración de IA incompleta. La validación biométrica no funcionará hasta seleccionar una Paid Key.</p>
+         </div>
+      )}
+
       {successAction && (
         <div className="fixed inset-0 z-[150] bg-slate-50 flex flex-col items-center justify-center animate-in fade-in duration-300">
            <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-8 animate-bounce"><CheckCircle size={40} className="text-blue-600" /></div>
@@ -552,137 +602,254 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   );
 };
 
-// ... Resto de los componentes (AdminDashboard, LocationsDashboard, etc) permanecen igual ...
+// --- LoginView ---
+const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: string | null }) => {
+  const [dni, setDni] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-// --- Personal Dashboard ---
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const user = await authenticateUser(dni, password);
+      if (user) onLogin(user);
+      else setError('Credenciales inválidas');
+    } catch (err: any) {
+      setError(err.message || 'Error al iniciar sesión');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-md bg-white rounded-[40px] shadow-2xl border border-slate-100 p-10 space-y-8 animate-in fade-in slide-in-from-bottom-8">
+        <div className="text-center space-y-4">
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="h-16 mx-auto object-contain" />
+          ) : (
+            <div className="w-16 h-16 bg-orange-600 rounded-2xl flex items-center justify-center mx-auto shadow-xl shadow-orange-100">
+              <Shield className="text-white" size={32} />
+            </div>
+          )}
+          <h1 className="text-3xl font-black tracking-tighter uppercase text-slate-900">UpFest Access</h1>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Sistema de Control de Personal</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">DNI / Usuario</label>
+            <div className="relative">
+              <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+              <input 
+                type="text" 
+                value={dni} 
+                onChange={(e) => setDni(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-50 p-4 pl-12 rounded-2xl font-bold text-sm outline-none focus:border-orange-500 focus:bg-white transition-all shadow-inner"
+                placeholder="Ingresa tu DNI"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contraseña</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+              <input 
+                type="password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-slate-50 border-2 border-slate-50 p-4 pl-12 rounded-2xl font-bold text-sm outline-none focus:border-orange-500 focus:bg-white transition-all shadow-inner"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-rose-600 animate-in shake">
+              <AlertTriangle size={18} />
+              <span className="text-[10px] font-black uppercase tracking-widest">{error}</span>
+            </div>
+          )}
+
+          <button 
+            type="submit" 
+            disabled={loading}
+            className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-slate-200 flex items-center justify-center gap-3 hover:bg-slate-800 transition-all disabled:opacity-50"
+          >
+            {loading ? <RefreshCw className="animate-spin" /> : <ArrowRight />}
+            Ingresar al Sistema
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// --- Sidebar ---
+const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl, isMobileMenuOpen, setIsMobileMenuOpen }: any) => {
+  const menuItems = [
+    { id: 'clock', label: 'Fichador', icon: Clock },
+    { id: 'admin', label: 'Personal', icon: Users, adminOnly: true },
+    { id: 'locations', label: 'Sedes', icon: MapPin, adminOnly: true },
+  ];
+
+  const filteredItems = menuItems.filter(item => !item.adminOnly || currentUser.role === 'Admin');
+
+  return (
+    <>
+      {/* Mobile Backdrop */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60] md:hidden" onClick={() => setIsMobileMenuOpen(false)} />
+      )}
+      
+      {/* Sidebar Content */}
+      <aside className={`fixed md:static inset-y-0 left-0 w-72 bg-white border-r border-slate-100 z-[70] flex flex-col transition-transform duration-300 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+        <div className="p-8 flex items-center gap-4">
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="h-10 object-contain" />
+          ) : (
+            <div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-100">
+              <Shield className="text-white" size={20} />
+            </div>
+          )}
+          <span className="font-black text-xl tracking-tighter uppercase">UpFest</span>
+        </div>
+
+        <nav className="flex-1 px-4 py-6 space-y-2">
+          {filteredItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all ${activeTab === item.id ? 'bg-orange-600 text-white shadow-xl shadow-orange-100' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-900'}`}
+            >
+              <item.icon size={20} />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="p-4 border-t border-slate-50 space-y-4">
+          <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl">
+            <div className="w-10 h-10 rounded-xl bg-white border shadow-sm flex items-center justify-center text-slate-300 overflow-hidden">
+               {currentUser.referenceImage ? <img src={currentUser.referenceImage} className="w-full h-full object-cover rounded-xl" /> : <UserIcon size={20} />}
+            </div>
+            <div className="overflow-hidden">
+              <p className="font-black text-[10px] text-slate-900 uppercase truncate">{currentUser.name}</p>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{currentUser.role}</p>
+            </div>
+          </div>
+          <button onClick={onLogout} className="w-full flex items-center gap-4 px-6 py-4 text-rose-500 rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-rose-50 transition-all">
+            <LogOut size={20} />
+            Cerrar Sesión
+          </button>
+        </div>
+      </aside>
+    </>
+  );
+};
+
+// --- AdminDashboard ---
 const AdminDashboard = () => {
   const [users, setUsers] = useState<User[]>([]);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [formData, setFormData] = useState<Partial<User>>({});
-  const [formSaving, setFormSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
-  const [dbHealthy, setDbHealthy] = useState(true);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
 
-  const load = async () => { 
-    setLoading(true); 
-    try { 
-      const [u, l, healthy] = await Promise.all([fetchUsers(), fetchLocations(), checkDatabaseHealth()]); 
-      setUsers(u); 
-      setLocations(l); 
-      setDbHealthy(healthy);
-    } catch (err) { console.error("Error al cargar nómina:", err); } 
-    finally { setLoading(false); } 
+  useEffect(() => { loadUsers(); }, []);
+
+  const loadUsers = async () => {
+    setLoading(true);
+    const data = await fetchUsers();
+    setUsers(data);
+    setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
-
-  useEffect(() => { 
-    if (editingUser) setFormData({ ...editingUser, schedule: editingUser.schedule || [], assignedLocations: editingUser.assignedLocations || [], isActive: editingUser.isActive }); 
-    else setFormData({ role: 'Mozo', schedule: [], assignedLocations: [], password: '1234', legajo: '', isActive: true }); 
-  }, [editingUser, isCreating]);
-
-  const handleDownloadTemplate = () => {
-    const headers = [
-      'Nombre', 'DNI', 'Legajo', 'Rol', 'Contraseña', 'Codigo Vestimenta',
-      'Lunes_Inicio', 'Lunes_Fin',
-      'Martes_Inicio', 'Martes_Fin',
-      'Miércoles_Inicio', 'Miércoles_Fin',
-      'Jueves_Inicio', 'Jueves_Fin',
-      'Viernes_Inicio', 'Viernes_Fin',
-      'Sábado_Inicio', 'Sábado_Fin',
-      'Domingo_Inicio', 'Domingo_Fin'
-    ];
-    const data = [headers, ['Juan Perez', '12345678', 'LG-001', 'Mozo', '1234', 'Remera Negra', '09:00', '18:00', '', '', '', '', '', '', '', '', '', '', '', '']];
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Plantilla_RRHH");
-    XLSX.writeFile(wb, "UpFest_Plantilla_RRHH.xlsx");
-  };
-
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rawData = XLSX.utils.sheet_to_json(ws);
-        
-        for (const row of (rawData as any[])) {
-          const schedule: WorkSchedule[] = [];
-          DAYS_OF_WEEK.forEach(day => {
-            const startKey = `${day}_Inicio`;
-            const endKey = `${day}_Fin`;
-            if (row[startKey] && row[endKey]) {
-              schedule.push({ startDay: day, startTime: String(row[startKey]), endDay: day, endTime: String(row[endKey]) });
-            }
-          });
-
-          const newUser: User = {
-            id: '',
-            name: String(row['Nombre'] || ''),
-            dni: String(row['DNI'] || ''),
-            legajo: String(row['Legajo'] || ''),
-            role: String(row['Rol'] || 'Mozo'),
-            password: String(row['Contraseña'] || '1234'),
-            dressCode: String(row['Codigo Vestimenta'] || ''),
-            schedule: schedule,
-            referenceImage: null,
-            assignedLocations: [],
-            isActive: true
-          };
-          if (newUser.name && newUser.dni) await saveUser(newUser);
-        }
-        alert("Importación completada exitosamente");
-        load();
-      } catch (err: any) { alert("Error procesando archivo: " + err.message); }
-      finally { setImporting(false); if (importInputRef.current) importInputRef.current.value = ''; }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const handleSaveUser = async (e: React.FormEvent) => {
-    e.preventDefault(); 
-    if (!formData.name || !formData.dni) return alert("Nombre y DNI obligatorios");
-    setFormSaving(true); 
-    try { 
-      await saveUser(formData as User); 
-      setSaveSuccess(true);
-      setTimeout(() => {
-        setSaveSuccess(false);
-        setEditingUser(null); 
-        setIsCreating(false); 
-        load(); 
-      }, 1500);
-    } catch (err: any) { 
-      console.error("Error al guardar usuario:", err);
-      alert("Error al guardar: " + err.message); 
-    } 
-    finally { setFormSaving(false); }
-  };
-
-  const handleDeleteUserDirect = async (userId: string, userName: string) => {
-    if (!confirm(`¿CONFIRMAS BORRAR A ${userName.toUpperCase()}? ESTA ACCIÓN NO SE PUEDE DESHACER.`)) return;
-    setIsDeletingUser(userId);
+  const handleSave = async (user: User) => {
     try {
-      await deleteUser(userId);
-      setUsers(prev => prev.filter(u => u.id !== userId));
-    } catch (err: any) {
-      alert("Error al borrar: " + err.message);
-    } finally {
-      setIsDeletingUser(null);
-    }
+      await saveUser(user);
+      setShowModal(false);
+      loadUsers();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿CONFIRMAS BORRAR ESTE USUARIO?')) return;
+    try { await deleteUser(id); loadUsers(); } catch (e: any) { alert(e.message); }
+  };
+
+  return (
+    <div className="p-8 animate-in fade-in">
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">Gestión de Personal</h2>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Colaboradores registrados</p>
+        </div>
+        <button onClick={() => { setEditingUser(null); setShowModal(true); }} className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 shadow-xl hover:bg-slate-800 transition-all">
+          <Plus size={18} /> Nuevo Colaborador
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {users.map(u => (
+          <div key={u.id} className="bg-white border border-slate-100 rounded-[32px] p-6 shadow-sm hover:shadow-xl transition-all group">
+            <div className="flex items-start justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-slate-50 overflow-hidden border shadow-sm flex items-center justify-center">
+                  {u.referenceImage ? <img src={u.referenceImage} className="w-full h-full object-cover" /> : <UserIcon className="text-slate-200" size={24} />}
+                </div>
+                <div>
+                  <h4 className="font-black text-sm text-slate-900 uppercase leading-none">{u.name}</h4>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Lgj: {u.legajo || '---'}</p>
+                </div>
+              </div>
+              <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase ${u.isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                {u.isActive ? 'Activo' : 'Inactivo'}
+              </span>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              <div className="flex items-center gap-3 text-slate-500">
+                <Briefcase size={14} />
+                <span className="text-[10px] font-bold uppercase tracking-widest">{u.role}</span>
+              </div>
+              <div className="flex items-center gap-3 text-slate-500">
+                <Shirt size={14} />
+                <span className="text-[10px] font-bold uppercase tracking-widest truncate">{u.dressCode || 'Sin especificar'}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+              <button onClick={() => { setEditingUser(u); setShowModal(true); }} className="flex-1 py-3 bg-slate-50 text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 flex items-center justify-center gap-2">
+                <Pencil size={14} /> Editar
+              </button>
+              <button onClick={() => handleDelete(u.id)} className="p-3 text-rose-200 hover:text-rose-500 transition-colors">
+                <Trash2 size={18} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {showModal && <UserModal user={editingUser} onClose={() => setShowModal(false)} onSave={handleSave} />}
+    </div>
+  );
+};
+
+// --- UserModal ---
+const UserModal = ({ user, onClose, onSave }: { user: User | null, onClose: () => void, onSave: (u: User) => void }) => {
+  const [formData, setFormData] = useState<User>(user || {
+    id: '', dni: '', password: '', name: '', role: 'Mozo', legajo: '', dressCode: '', referenceImage: null, schedule: [], isActive: true
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(formData);
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -694,454 +861,299 @@ const AdminDashboard = () => {
     }
   };
 
-  const toggleLocation = (locId: string) => {
-    const current = formData.assignedLocations || [];
-    if (current.includes(locId)) setFormData({ ...formData, assignedLocations: current.filter(id => id !== locId) });
-    else setFormData({ ...formData, assignedLocations: [...current, locId] });
-  };
-
-  const addSchedule = () => {
-    const newSchedule: WorkSchedule = { startDay: 'Lunes', startTime: '09:00', endDay: 'Lunes', endTime: '18:00' };
-    setFormData({ ...formData, schedule: [...(formData.schedule || []), newSchedule] });
-  };
-
-  const removeSchedule = (index: number) => {
-    const newSchedules = [...(formData.schedule || [])];
-    newSchedules.splice(index, 1);
-    setFormData({ ...formData, schedule: newSchedules });
-  };
-
-  const updateSchedule = (index: number, field: keyof WorkSchedule, value: string) => {
-    const newSchedules = [...(formData.schedule || [])];
-    newSchedules[index] = { ...newSchedules[index], [field]: value };
-    setFormData({ ...formData, schedule: newSchedules });
-  };
-
   return (
-    <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in">
-      {!dbHealthy && (
-        <div className="bg-amber-50 border border-amber-200 p-6 rounded-[24px] flex flex-col md:flex-row items-center gap-4 animate-bounce shadow-xl">
-           <Activity className="text-amber-600 shrink-0" size={32}/>
-           <div className="flex-1 text-center md:text-left">
-              <p className="font-black text-[10px] uppercase tracking-widest text-amber-700">Actualización de Base de Datos Necesaria</p>
-              <p className="text-xs font-bold text-amber-900 leading-tight">Ejecuta el script SQL incluido para habilitar estados y sedes asignadas.</p>
-           </div>
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+      <div className="w-full max-w-2xl bg-white rounded-[40px] shadow-2xl p-8 md:p-12 animate-in zoom-in-95 my-8">
+        <div className="flex items-center justify-between mb-10">
+          <h3 className="text-2xl font-black uppercase tracking-tighter">{user ? 'Editar Colaborador' : 'Nuevo Colaborador'}</h3>
+          <button onClick={onClose} className="p-3 text-slate-300 hover:text-slate-900"><X size={24} /></button>
         </div>
-      )}
 
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <div className="text-center md:text-left">
-          <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">Personal</h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Nómina UpFest Control</p>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full md:w-auto">
-          <button onClick={handleDownloadTemplate} className="flex-1 md:flex-none bg-emerald-50 text-emerald-600 border border-emerald-200 px-6 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm font-black text-[10px] uppercase tracking-widest hover:bg-emerald-100 transition-all">
-            <FileSpreadsheet size={18} /> Descargar Plantilla
-          </button>
-          <button onClick={() => importInputRef.current?.click()} disabled={importing} className="flex-1 md:flex-none bg-blue-50 text-blue-600 border border-blue-200 px-6 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm font-black text-[10px] uppercase tracking-widest hover:bg-blue-100 transition-all">
-            {importing ? <RefreshCw className="animate-spin" size={18}/> : <FileUp size={18} />} {importing ? 'Subiendo...' : 'Importar Excel'}
-          </button>
-          <input type="file" ref={importInputRef} onChange={handleImportExcel} className="hidden" accept=".xlsx,.xls" />
-          <button onClick={() => setIsCreating(true)} className="flex-1 md:flex-none bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
-            <Plus size={18} /> Nuevo Colaborador
-          </button>
-        </div>
-      </div>
-      
-      <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm">
-         <div className="overflow-x-auto"><table className="w-full text-left border-collapse">
-           <thead><tr className="bg-slate-50 border-b"><th className="p-6 text-[10px] font-black uppercase">Colaborador</th><th className="p-6 text-[10px] font-black uppercase">DNI</th><th className="p-6 text-[10px] font-black uppercase">Rol</th><th className="p-6 text-right">Acciones</th></tr></thead>
-           <tbody className="divide-y">
-             {users.length === 0 ? (
-               <tr><td colSpan={4} className="p-20 text-center text-slate-300 font-black uppercase italic">Sin personal para mostrar</td></tr>
-             ) : users.map(u => (
-               <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                 <td className="p-6 flex items-center gap-4">
-                   <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0">
-                     {u.referenceImage && <img src={u.referenceImage} className="w-full h-full object-cover" />}
-                   </div>
-                   <span className="font-black text-slate-800 uppercase text-sm">{u.name}</span>
-                 </td>
-                 <td className="p-6 text-xs font-bold text-slate-500 font-mono">{u.dni}</td>
-                 <td className="p-6 text-[10px] font-black uppercase text-slate-700">{u.role}</td>
-                 <td className="p-6 text-right">
-                   <div className="flex items-center justify-end gap-1">
-                     <button onClick={() => setEditingUser(u)} className="p-3 text-slate-300 hover:text-orange-600 transition-colors" title="Editar">
-                       <Pencil size={18}/>
-                     </button>
-                     <button 
-                       disabled={isDeletingUser === u.id} 
-                       onClick={() => handleDeleteUserDirect(u.id, u.name)} 
-                       className="p-3 text-slate-300 hover:text-rose-600 transition-colors" 
-                       title="Borrar Definitivamente"
-                     >
-                       {isDeletingUser === u.id ? <RefreshCw className="animate-spin" size={18}/> : <Trash2 size={18}/>}
-                     </button>
-                   </div>
-                 </td>
-               </tr>
-             ))}
-           </tbody>
-         </table></div>
-      </div>
-
-      {(isCreating || editingUser) && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-2 md:p-4">
-          <div className="bg-white rounded-[40px] md:rounded-[48px] w-full max-w-5xl shadow-2xl overflow-y-auto max-h-[95vh] relative animate-in zoom-in-95 duration-300">
-            {saveSuccess && (
-              <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[200] flex flex-col items-center justify-center animate-in fade-in duration-300">
-                <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-bounce shadow-xl shadow-emerald-50 border-4 border-white">
-                  <Check size={48} className="text-emerald-600" />
-                </div>
-                <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900">CAMBIOS REALIZADOS</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 italic">ACTUALIZANDO NÓMINA...</p>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="md:col-span-2 flex justify-center mb-4">
+            <div className="relative group">
+              <div className="w-32 h-32 rounded-[32px] bg-slate-50 border-4 border-slate-100 flex items-center justify-center overflow-hidden shadow-inner">
+                {formData.referenceImage ? (
+                  <img src={formData.referenceImage} className="w-full h-full object-cover" />
+                ) : (
+                  <UserIcon className="text-slate-200" size={48} />
+                )}
               </div>
-            )}
-
-            <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="absolute top-6 right-6 md:top-8 md:right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
-            <form onSubmit={handleSaveUser} className="p-6 md:p-12 space-y-8 md:space-y-12">
-              <div className="border-b pb-6">
-                  <h3 className="font-black text-3xl md:text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">SISTEMA RRHH - UPFEST</p>
-              </div>
-
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 md:gap-12">
-                <div className="flex flex-col items-center gap-6">
-                    <div className="aspect-[4/5] w-full bg-slate-50 rounded-[32px] border-4 border-slate-100 relative overflow-hidden group shadow-inner">
-                       {formData.referenceImage ? <img src={formData.referenceImage} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><ImageIcon size={48}/></div>}
-                       <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-black text-xs uppercase gap-2 backdrop-blur-sm"><Upload size={18}/> Cambiar</button>
-                    </div>
-                    <input type="file" ref={fileInputRef} onChange={handleImageChange} className="hidden" accept="image/*" />
-                    <div className="w-full space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest block">LEGAJO</label>
-                        <input type="text" value={formData.legajo || ''} onChange={e => setFormData({...formData, legajo: e.target.value})} className="w-full p-4 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-xs" placeholder="ADM-000" />
-                    </div>
-                </div>
-
-                <div className="xl:col-span-2 space-y-6 md:space-y-10">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="col-span-full space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nombre Completo</label>
-                      <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none uppercase text-sm md:text-base border border-transparent focus:border-slate-200" required />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">DNI</label>
-                      <input type="text" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm md:text-base border border-transparent focus:border-slate-200" required />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Rol / Puesto</label>
-                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm md:text-base border border-transparent focus:border-slate-200">
-                        {DEFAULT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
-                    <div className="col-span-full space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Vestimenta Requerida</label>
-                      <textarea value={formData.dressCode || ''} onChange={e => setFormData({...formData, dressCode: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 h-24 outline-none text-sm resize-none border border-transparent focus:border-slate-200" placeholder="Ej: Remera negra lisa, pantalón oscuro..." />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                     <h4 className="font-black text-[12px] uppercase tracking-tighter flex items-center gap-2 text-slate-800"><MapPin size={18}/> SEDES ASIGNADAS</h4>
-                     <div className="flex flex-wrap gap-3">
-                        {locations.map(loc => {
-                           const isActive = formData.assignedLocations?.includes(loc.id);
-                           return (
-                             <button 
-                                key={loc.id} 
-                                type="button" 
-                                onClick={() => toggleLocation(loc.id)} 
-                                className={`px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all flex items-center gap-3 ${isActive ? 'bg-white border-orange-500 text-orange-600 shadow-lg shadow-orange-50' : 'bg-white border-slate-100 text-slate-400 hover:border-slate-200'}`}
-                             >
-                                {loc.name}
-                                {isActive && <Check size={14}/>}
-                             </button>
-                           );
-                        })}
-                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-slate-50/50 p-6 md:p-10 rounded-[32px] md:rounded-[48px] border border-slate-100 space-y-8">
-                 <div className="flex items-center justify-between gap-4">
-                    <h4 className="font-black text-[12px] uppercase tracking-tighter flex items-center gap-3 text-slate-800"><Clock size={20}/> HORARIOS DE TRABAJO</h4>
-                    <button type="button" onClick={addSchedule} className="bg-white border-2 border-slate-200 text-slate-900 px-6 py-3 rounded-2xl flex items-center gap-2 font-black text-[10px] uppercase tracking-widest shadow-sm hover:border-orange-500 hover:text-orange-600 transition-all">
-                        <Plus size={18}/> AÑADIR FRANJA
-                    </button>
-                 </div>
-
-                 <div className="grid grid-cols-1 gap-6">
-                    {(!formData.schedule || formData.schedule.length === 0) ? (
-                      <div className="py-12 text-center border-4 border-dashed rounded-[32px] border-slate-100">
-                        <Calendar size={48} className="mx-auto text-slate-200 mb-4" strokeWidth={1}/>
-                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Sin horarios configurados</p>
-                      </div>
-                    ) : (
-                      formData.schedule.map((slot, idx) => (
-                        <div key={idx} className="bg-white p-8 rounded-[28px] shadow-sm border border-slate-100 relative group animate-in slide-in-from-right-4">
-                           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 items-center">
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inicia</label>
-                                <select value={slot.startDay} onChange={e => updateSchedule(idx, 'startDay', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs appearance-none cursor-pointer">
-                                  {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d}</option>)}
-                                </select>
-                              </div>
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Entrada</label>
-                                <div className="relative">
-                                  <input type="time" value={slot.startTime} onChange={e => updateSchedule(idx, 'startTime', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs cursor-pointer" />
-                                  <Clock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14}/>
-                                </div>
-                              </div>
-                              <div className="hidden md:flex items-center justify-center text-slate-200 pt-6">
-                                <ArrowRight size={24}/>
-                              </div>
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Termina</label>
-                                <select value={slot.endDay} onChange={e => updateSchedule(idx, 'endDay', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs appearance-none cursor-pointer">
-                                  {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d}</option>)}
-                                </select>
-                              </div>
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Salida</label>
-                                <div className="relative">
-                                  <input type="time" value={slot.endTime} onChange={e => updateSchedule(idx, 'endTime', e.target.value)} className="w-full bg-slate-50 p-4 rounded-xl border-none font-bold text-xs cursor-pointer" />
-                                  <Clock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14}/>
-                                </div>
-                              </div>
-                           </div>
-                           <button type="button" onClick={() => removeSchedule(idx)} className="absolute -bottom-3 -left-3 md:bottom-auto md:left-auto md:top-6 md:right-6 p-4 bg-white md:bg-transparent text-slate-200 hover:text-rose-500 rounded-2xl shadow-lg md:shadow-none transition-all group-hover:scale-110">
-                               <Trash2 size={20}/>
-                           </button>
-                        </div>
-                      ))
-                    )}
-                 </div>
-              </div>
-
-              <div className="flex flex-col md:flex-row gap-4 pt-8">
-                <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="flex-1 py-6 bg-white border-2 border-slate-100 text-slate-400 rounded-[28px] font-black uppercase tracking-widest text-[11px] hover:bg-slate-50 transition-colors shadow-sm">CANCELAR</button>
-                <button type="submit" disabled={formSaving} className="flex-[2] py-6 bg-[#0f172a] text-white rounded-[28px] font-black uppercase tracking-widest shadow-2xl flex items-center justify-center gap-3 text-[11px] transition-all hover:bg-slate-800 hover:scale-[1.01] active:scale-95 disabled:opacity-50">
-                  {formSaving ? 'GUARDANDO CAMBIOS...' : 'GUARDAR FICHA'}
-                </button>
-              </div>
-            </form>
+              <label className="absolute inset-0 flex items-center justify-center bg-slate-900/40 text-white opacity-0 group-hover:opacity-100 cursor-pointer rounded-[32px] transition-all backdrop-blur-sm">
+                <Upload size={24} />
+                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+              </label>
+            </div>
           </div>
-        </div>
-      )}
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre Completo</label>
+            <input 
+              type="text" 
+              value={formData.name} 
+              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 focus:bg-white transition-all shadow-sm"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">DNI</label>
+            <input 
+              type="text" 
+              value={formData.dni} 
+              onChange={e => setFormData({ ...formData, dni: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 focus:bg-white transition-all shadow-sm"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Legajo</label>
+            <input 
+              type="text" 
+              value={formData.legajo} 
+              onChange={e => setFormData({ ...formData, legajo: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 focus:bg-white transition-all shadow-sm"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Contraseña</label>
+            <input 
+              type="password" 
+              value={formData.password} 
+              onChange={e => setFormData({ ...formData, password: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 focus:bg-white transition-all shadow-sm"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Rol / Puesto</label>
+            <select 
+              value={formData.role} 
+              onChange={e => setFormData({ ...formData, role: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 focus:bg-white transition-all shadow-sm appearance-none"
+            >
+              {DEFAULT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Código de Vestimenta</label>
+            <input 
+              type="text" 
+              value={formData.dressCode} 
+              onChange={e => setFormData({ ...formData, dressCode: e.target.value })}
+              placeholder="Ej: Camisa negra, pantalón oscuro"
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 focus:bg-white transition-all shadow-sm"
+            />
+          </div>
+
+          <div className="md:col-span-2 flex items-center gap-4 bg-slate-50 p-6 rounded-[24px]">
+             <input 
+               type="checkbox" 
+               checked={formData.isActive} 
+               onChange={e => setFormData({ ...formData, isActive: e.target.checked })}
+               className="w-6 h-6 accent-orange-600 rounded-lg cursor-pointer"
+               id="userActive"
+             />
+             <label htmlFor="userActive" className="text-xs font-black uppercase tracking-widest cursor-pointer">Colaborador Activo</label>
+          </div>
+
+          <div className="md:col-span-2 flex gap-4 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all">Cancelar</button>
+            <button type="submit" className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-800 transition-all">Guardar Colaborador</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
 
-// --- LocationsDashboard y resto de componentes ---
+// --- LocationsDashboard ---
 const LocationsDashboard = () => {
-    const [locations, setLocations] = useState<Location[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [editingLoc, setEditingLoc] = useState<Location | null>(null);
-    const [isCreatingLoc, setIsCreatingLoc] = useState(false);
-    const [locSaving, setLocSaving] = useState(false);
-    const [saveSuccess, setSaveSuccess] = useState(false);
-    const [locFormData, setLocFormData] = useState<Partial<Location>>({});
-    const [currentLocId, setCurrentLocId] = useState(localStorage.getItem('upfest_terminal_location_id'));
-    
-    const load = async () => { 
-      setLoading(true); 
-      try { 
-        setLocations(await fetchLocations()); 
-      } finally { 
-        setLoading(false); 
-      } 
-    };
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [editingLoc, setEditingLoc] = useState<Location | null>(null);
 
-    useEffect(() => { load(); }, []);
+  useEffect(() => { loadLocations(); }, []);
 
-    useEffect(() => {
-      if (editingLoc) setLocFormData({ ...editingLoc });
-      else setLocFormData({ name: '', address: '', city: '', lat: 0, lng: 0, radiusMeters: 100 });
-    }, [editingLoc, isCreatingLoc]);
+  const loadLocations = async () => {
+    const data = await fetchLocations();
+    setLocations(data);
+  };
 
-    const handleSaveLoc = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!locFormData.name) return alert("Nombre obligatorio");
-      setLocSaving(true);
-      try {
-        await saveLocation(locFormData as Location);
-        setSaveSuccess(true);
-        setTimeout(() => {
-          setSaveSuccess(false);
-          setEditingLoc(null);
-          setIsCreatingLoc(false);
-          load();
-        }, 1500);
-      } catch (err: any) {
-        alert("Error al guardar sede: " + err.message);
-      } finally {
-        setLocSaving(false);
-      }
-    };
+  const handleSave = async (loc: Location) => {
+    try {
+      await saveLocation(loc);
+      setShowModal(false);
+      loadLocations();
+    } catch (e: any) { alert(e.message); }
+  };
 
-    const handleDeleteLoc = async (locId: string, name: string) => {
-      if (!confirm(`¿CONFIRMAS ELIMINAR LA SEDE "${name.toUpperCase()}"?`)) return;
-      try {
-        await deleteLocation(locId);
-        load();
-      } catch (err: any) {
-        alert("Error al eliminar: " + err.message);
-      }
-    };
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿CONFIRMAS BORRAR ESTA SEDE?')) return;
+    try { await deleteLocation(id); loadLocations(); } catch (e: any) { alert(e.message); }
+  };
 
-    const fetchCurrentGPS = async () => {
-      try {
-        const pos = await getCurrentPosition();
-        setLocFormData({ ...locFormData, lat: pos.coords.latitude, lng: pos.coords.longitude });
-      } catch (e) {
-        alert("No se pudo obtener la ubicación GPS.");
-      }
-    };
+  return (
+    <div className="p-8 animate-in fade-in">
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <h2 className="text-3xl font-black tracking-tighter uppercase text-slate-900">Gestión de Sedes</h2>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Ubicaciones habilitadas</p>
+        </div>
+        <button onClick={() => { setEditingLoc(null); setShowModal(true); }} className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 shadow-xl hover:bg-slate-800 transition-all">
+          <Plus size={18} /> Nueva Sede
+        </button>
+      </div>
 
-    return (
-        <div className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
-              <div className="text-center md:text-left">
-                <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter leading-none">Sedes / Salones</h1>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 italic">CONFIGURACIÓN DE GEOCERCAS</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {locations.map(l => (
+          <div key={l.id} className="bg-white border border-slate-100 rounded-[32px] p-8 shadow-sm hover:shadow-xl transition-all group">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600">
+                <MapPin size={24} />
               </div>
-              <button onClick={() => setIsCreatingLoc(true)} className="w-full md:w-auto bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
-                <Plus size={18} /> Nueva Sede
+              <h4 className="font-black text-lg text-slate-900 uppercase tracking-tight truncate flex-1">{l.name}</h4>
+            </div>
+
+            <div className="space-y-4 mb-8">
+               <div className="flex items-start gap-3">
+                  <Navigation size={14} className="text-slate-300 mt-1" />
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{l.address}, {l.city}</p>
+               </div>
+               <div className="flex items-center gap-3">
+                  <Target size={14} className="text-slate-300" />
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Radio: {l.radiusMeters}m</p>
+               </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={() => { setEditingLoc(l); setShowModal(true); }} className="flex-1 py-3 bg-slate-50 text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 flex items-center justify-center gap-2">
+                <Pencil size={14} /> Editar
+              </button>
+              <button onClick={() => handleDelete(l.id)} className="p-3 text-rose-200 hover:text-rose-500 transition-colors">
+                <Trash2 size={18} />
               </button>
             </div>
+          </div>
+        ))}
+      </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-              {loading ? (
-                <div className="col-span-full py-20 text-center text-slate-300 font-black uppercase">Cargando sedes...</div>
-              ) : locations.map(loc => (
-                <div key={loc.id} className={`p-8 bg-white border rounded-[40px] shadow-sm transition-all relative group ${currentLocId === loc.id ? 'border-orange-500 ring-8 ring-orange-50' : 'border-slate-100'}`}>
-                  <button onClick={() => setEditingLoc(loc)} className="absolute top-6 right-6 p-3 text-slate-300 hover:text-orange-600 transition-colors">
-                    <Pencil size={18}/>
-                  </button>
-                  <div className={`w-16 h-16 rounded-[24px] flex items-center justify-center mb-6 ${currentLocId === loc.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-100' : 'bg-slate-50 text-slate-400'}`}>
-                    <Building size={24}/>
-                  </div>
-                  <h3 className="font-black text-2xl text-slate-900 uppercase tracking-tighter mb-2 pr-10">{loc.name}</h3>
-                  <div className="space-y-2 mb-8">
-                    <p className="text-xs font-bold text-slate-500 flex items-center gap-2"><MapPin size={14} className="text-slate-300"/> {loc.address || 'Sin dirección'}</p>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Navigation size={14} className="text-slate-300"/> {loc.lat.toFixed(6)}, {loc.lng.toFixed(6)}</p>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Target size={14} className="text-slate-300"/> Radio: {loc.radiusMeters}m</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => { localStorage.setItem('upfest_terminal_location_id', loc.id); setCurrentLocId(loc.id); alert('Sede vinculada'); }} className={`flex-[2] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${currentLocId === loc.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-slate-900 text-white'}`}>
-                      {currentLocId === loc.id ? 'VINCULADA' : 'VINCULAR TERMINAL'}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {(isCreatingLoc || editingLoc) && (
-              <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                <div className="bg-white rounded-[40px] w-full max-w-2xl shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
-                  {saveSuccess && (
-                    <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[200] flex flex-col items-center justify-center animate-in fade-in duration-300">
-                      <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-bounce shadow-xl border-4 border-white">
-                        <Check size={48} className="text-emerald-600" />
-                      </div>
-                      <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-900">CAMBIOS REALIZADOS</h3>
-                    </div>
-                  )}
-                  
-                  <button type="button" onClick={() => { setEditingLoc(null); setIsCreatingLoc(false); }} className="absolute top-8 right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
-                  
-                  <form onSubmit={handleSaveLoc} className="p-10 space-y-8">
-                    <div className="border-b pb-6">
-                      <h3 className="font-black text-3xl text-slate-900 uppercase tracking-tighter">{editingLoc ? 'EDITAR SEDE' : 'NUEVA SEDE'}</h3>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="col-span-full space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nombre del Salón / Sede</label>
-                        <input type="text" value={locFormData.name || ''} onChange={e => setLocFormData({...locFormData, name: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none uppercase text-sm border border-transparent focus:border-slate-200" required />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Dirección</label>
-                        <input type="text" value={locFormData.address || ''} onChange={e => setLocFormData({...locFormData, address: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Ciudad</label>
-                        <input type="text" value={locFormData.city || ''} onChange={e => setLocFormData({...locFormData, city: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Latitud</label>
-                        <input type="number" step="any" value={locFormData.lat || 0} onChange={e => setLocFormData({...locFormData, lat: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Longitud</label>
-                        <input type="number" step="any" value={locFormData.lng || 0} onChange={e => setLocFormData({...locFormData, lng: parseFloat(e.target.value)})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
-                      </div>
-                      <div className="col-span-full flex gap-4">
-                        <div className="flex-1 space-y-2">
-                          <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Radio de Tolerancia (Metros)</label>
-                          <input type="number" value={locFormData.radiusMeters || 100} onChange={e => setLocFormData({...locFormData, radiusMeters: parseInt(e.target.value)})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
-                        </div>
-                        <div className="flex-1 pt-6">
-                           <button type="button" onClick={fetchCurrentGPS} className="w-full h-full bg-orange-50 text-orange-600 border-2 border-orange-100 rounded-[20px] font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-orange-100 transition-all">
-                              <Navigation size={18}/> Usar mi GPS
-                           </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col md:flex-row gap-4 pt-4">
-                      {editingLoc && (
-                        <button type="button" onClick={() => handleDeleteLoc(editingLoc.id, editingLoc.name)} className="py-5 bg-rose-50 text-rose-600 rounded-[24px] font-black uppercase tracking-widest text-[10px] px-8 hover:bg-rose-100 transition-colors">ELIMINAR</button>
-                      )}
-                      <button type="button" onClick={() => { setEditingLoc(null); setIsCreatingLoc(false); }} className="flex-1 py-5 bg-white border-2 border-slate-100 text-slate-400 rounded-[24px] font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-colors">CANCELAR</button>
-                      <button type="submit" disabled={locSaving} className="flex-[2] py-5 bg-[#0f172a] text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] shadow-2xl flex items-center justify-center gap-3 transition-all hover:bg-slate-800 disabled:opacity-50">
-                        {locSaving ? <RefreshCw className="animate-spin" size={18}/> : 'GUARDAR SEDE'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-        </div>
-    );
+      {showModal && <LocationModal location={editingLoc} onClose={() => setShowModal(false)} onSave={handleSave} />}
+    </div>
+  );
 };
 
-const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl, isMobileMenuOpen, setIsMobileMenuOpen }: any) => {
-  const NavButton = ({ tab, icon: Icon, label }: any) => (
-    <button onClick={() => { setActiveTab(tab); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition ${activeTab === tab ? 'bg-orange-50 text-orange-700' : 'text-slate-400 hover:bg-slate-50'}`}>
-      <Icon size={20}/> {label}
-    </button>
-  );
+// --- LocationModal ---
+const LocationModal = ({ location, onClose, onSave }: { location: Location | null, onClose: () => void, onSave: (l: Location) => void }) => {
+  const [formData, setFormData] = useState<Location>(location || {
+    id: '', name: '', address: '', city: '', lat: -34.6037, lng: -58.3816, radiusMeters: 100
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(formData);
+  };
+
+  const setTerminalLocation = () => {
+    localStorage.setItem('upfest_terminal_location_id', formData.id);
+    alert('Sede asignada como terminal local.');
+  };
+
   return (
-    <>
-      {isMobileMenuOpen && <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] md:hidden" onClick={() => setIsMobileMenuOpen(false)} />}
-      <aside className={`fixed inset-y-0 left-0 z-[100] w-72 bg-white border-r border-slate-200 transform transition-transform duration-300 md:translate-x-0 md:static h-full flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-10 border-b flex flex-col items-center">
-          {logoUrl ? <img src={logoUrl} className="h-16 mb-4 object-contain" /> : <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mb-4">UP</div>}
-          <span className="font-black text-slate-900 tracking-tighter text-2xl">UPFEST</span>
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="w-full max-w-lg bg-white rounded-[40px] shadow-2xl p-8 md:p-12 animate-in zoom-in-95">
+        <div className="flex items-center justify-between mb-10">
+          <h3 className="text-2xl font-black uppercase tracking-tighter">{location ? 'Editar Sede' : 'Nueva Sede'}</h3>
+          <button onClick={onClose} className="p-3 text-slate-300 hover:text-slate-900"><X size={24} /></button>
         </div>
-        <nav className="flex-1 p-8 space-y-2 overflow-y-auto">
-          <NavButton tab="clock" icon={Clock} label={currentUser.role === 'Admin' ? 'Monitor' : 'Fichadas'} />
-          {currentUser.role === 'Admin' && (
-            <>
-              <NavButton tab="admin" icon={Users} label="RRHH / Nómina" />
-              <NavButton tab="locations" icon={Building} label="Salones / Sedes" />
-            </>
-          )}
-        </nav>
-        <div className="p-8 border-t space-y-2">
-          {currentUser.role === 'Admin' && isAIStudio && (
-            <button onClick={handleOpenApiKeyDialog} className="w-full flex items-center gap-4 px-6 py-3 rounded-[20px] text-[9px] font-black uppercase text-slate-400 border border-dashed hover:border-orange-500 transition-colors">
-              <Key size={18} /> Llave AI
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre de la Sede</label>
+            <input 
+              type="text" 
+              value={formData.name} 
+              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 focus:bg-white transition-all shadow-sm"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Dirección</label>
+                <input 
+                  type="text" 
+                  value={formData.address} 
+                  onChange={e => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm"
+                  required
+                />
+             </div>
+             <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Ciudad</label>
+                <input 
+                  type="text" 
+                  value={formData.city} 
+                  onChange={e => setFormData({ ...formData, city: e.target.value })}
+                  className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm"
+                  required
+                />
+             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Latitud</label>
+                <input 
+                  type="number" step="any"
+                  value={formData.lat} 
+                  onChange={e => setFormData({ ...formData, lat: parseFloat(e.target.value) })}
+                  className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm"
+                  required
+                />
+             </div>
+             <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Longitud</label>
+                <input 
+                  type="number" step="any"
+                  value={formData.lng} 
+                  onChange={e => setFormData({ ...formData, lng: parseFloat(e.target.value) })}
+                  className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm"
+                  required
+                />
+             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Radio Geofence (metros)</label>
+            <input 
+              type="number" 
+              value={formData.radiusMeters} 
+              onChange={e => setFormData({ ...formData, radiusMeters: parseInt(e.target.value) })}
+              className="w-full bg-slate-50 border-2 border-slate-50 p-4 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm"
+              required
+            />
+          </div>
+
+          {location && (
+            <button type="button" onClick={setTerminalLocation} className="w-full py-4 border-2 border-orange-100 text-orange-600 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-orange-50 transition-all flex items-center justify-center gap-3 mb-2">
+              <Monitor size={18} /> Usar como Sede Terminal
             </button>
           )}
-          <button onClick={onLogout} className="w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase text-red-400 hover:bg-red-50 transition-colors">
-            <LogOut size={20} /> Salir
-          </button>
-        </div>
-      </aside>
-    </>
+
+          <div className="flex gap-4 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all">Cancelar</button>
+            <button type="submit" className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-slate-800 transition-all">Guardar Sede</button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 };
 
@@ -1172,49 +1184,3 @@ export default function App() {
     </div>
   );
 }
-
-const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: string | null }) => {
-  const [dni, setDni] = useState(''); 
-  const [password, setPassword] = useState(''); 
-  const [error, setError] = useState(''); 
-  const [loading, setLoading] = useState(false);
-  
-  const handleLogin = async (e: React.FormEvent) => { 
-    e.preventDefault(); 
-    setLoading(true); 
-    setError('');
-    try { 
-      const user = await authenticateUser(dni, password); 
-      if (user) onLogin(user); 
-      else setError('DNI O CLAVE INCORRECTO'); 
-    } catch (err: any) { 
-      if (err.message === "CUENTA DESACTIVADA") {
-        setError("CUENTA DESACTIVADA");
-      } else {
-        setError('ERROR DE CONEXIÓN'); 
-      }
-    } 
-    finally { setLoading(false); } 
-  };
-  
-  return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
-      <div className="w-full max-w-sm bg-white rounded-[48px] shadow-2xl p-14 border relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-2 bg-slate-900"></div>
-        <div className="text-center">
-          {logoUrl ? <img src={logoUrl} className="h-20 mx-auto mb-8 object-contain" /> : <div className="w-24 h-24 bg-slate-900 rounded-[32px] flex items-center justify-center mx-auto mb-8 text-white font-black text-4xl shadow-2xl">UP</div>}
-          <h2 className="text-3xl font-black mb-2 uppercase tracking-tighter text-slate-800">UPFEST</h2>
-          <p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">CONTROL BIOMÉTRICO</p>
-        </div>
-        <form onSubmit={handleLogin} className="space-y-6 mt-12">
-          <input type="text" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="DNI" />
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="CLAVE" />
-          {error && <div className="text-red-500 text-[10px] font-black text-center uppercase animate-pulse">{error}</div>}
-          <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-black py-5 rounded-[20px] shadow-xl hover:bg-slate-800 transition-all disabled:opacity-50 text-sm uppercase tracking-widest">
-            {loading ? 'CONECTANDO...' : 'INGRESAR'}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-};
