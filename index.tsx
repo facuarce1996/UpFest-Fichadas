@@ -4,13 +4,17 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 
 // Polyfill robusto para asegurar que process.env exista en el navegador
-// y evitar errores al inicializar GoogleGenAI.
 if (typeof window !== 'undefined') {
-  if (typeof (window as any).process === 'undefined') {
-    (window as any).process = { env: {} };
-  } else if (!(window as any).process.env) {
-    (window as any).process.env = {};
+  const win = window as any;
+  if (typeof win.process === 'undefined') {
+    win.process = { env: {} };
+  } else if (!win.process.env) {
+    win.process.env = {};
   }
+  
+  // Establecer la API Key proporcionada como fallback fijo para despliegues externos (Vercel)
+  // Se prioriza cualquier variable ya inyectada por el entorno
+  win.process.env.API_KEY = win.process.env.API_KEY || 'AIzaSyCwInNzcpEiQ4VBw9-iOd2Y2DsznUnhlcE';
 }
 
 const rootElement = document.getElementById('root');
