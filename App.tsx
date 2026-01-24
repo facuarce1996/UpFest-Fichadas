@@ -148,9 +148,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const handleApplyFilter = () => { if (filterStartDate && filterEndDate) { setActiveQuickFilter(null); loadData(true); } };
   const handleClearFilter = () => { setFilterStartDate(''); setFilterEndDate(''); setActiveQuickFilter(null); loadData(true, '', ''); };
 
-  const getShiftDuration = (log: LogEntry) => {
+  const getShiftDuration = (log: LogEntry, logList: LogEntry[]) => {
     if (log.type !== 'CHECK_OUT') return null;
-    const userLogsInOrder = [...adminLogs]
+    const userLogsInOrder = [...logList]
       .filter(l => l.userId === log.userId)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     
@@ -409,7 +409,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   {adminLogs.length === 0 ? (
                     <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
                   ) : adminLogs.map(log => {
-                    const durationMins = getShiftDuration(log);
+                    const durationMins = getShiftDuration(log, adminLogs);
                     return (
                       <tr key={log.id} className="hover:bg-white transition-all">
                         <td className="p-6 text-center">
@@ -521,20 +521,28 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
                 {userTodayLogs.length === 0 ? (
                   <div className="py-20 text-center border-4 border-dashed rounded-[32px] border-slate-50 text-slate-200 uppercase text-[10px] font-black">Sin movimientos hoy</div>
-                ) : userTodayLogs.map(l => (
-                  <div key={l.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div className="flex items-center gap-4">
-                        <div className={`p-2.5 rounded-xl ${l.type === 'CHECK_IN' ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-white'}`}>
-                            {l.type === 'CHECK_IN' ? <UserCheck size={18}/> : <LogOut size={18}/>}
-                        </div>
-                        <div>
-                            <span className="block font-black text-xs uppercase">{l.type === 'CHECK_IN' ? 'Ingreso' : 'Egreso'}</span>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase leading-none">{l.locationName}</span>
-                        </div>
+                ) : userTodayLogs.map(l => {
+                  const durationMins = getShiftDuration(l, userTodayLogs);
+                  return (
+                    <div key={l.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-4">
+                          <div className={`p-2.5 rounded-xl ${l.type === 'CHECK_IN' ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-white'}`}>
+                              {l.type === 'CHECK_IN' ? <UserCheck size={18}/> : <LogOut size={18}/>}
+                          </div>
+                          <div>
+                              <span className="block font-black text-xs uppercase">{l.type === 'CHECK_IN' ? 'Ingreso' : 'Egreso'}</span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase leading-none">{l.locationName}</span>
+                          </div>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="font-mono font-black text-sm text-slate-900 bg-white px-3 py-1 rounded-lg border shadow-sm">{new Date(l.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                        {durationMins !== null && (
+                          <span className="text-[9px] font-black text-orange-600 uppercase mt-1">Trabajado: {formatMinutes(durationMins)}</span>
+                        )}
+                      </div>
                     </div>
-                    <span className="font-mono font-black text-sm text-slate-900 bg-white px-3 py-1 rounded-lg border shadow-sm">{new Date(l.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                  </div>
-                ))}
+                  );
+                })}
              </div>
           </div>
         </div>
@@ -543,6 +551,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     </div>
   );
 };
+
+// ... Resto de los componentes (AdminDashboard, LocationsDashboard, etc) permanecen igual ...
 
 // --- Personal Dashboard ---
 const AdminDashboard = () => {
@@ -923,7 +933,7 @@ const AdminDashboard = () => {
   );
 };
 
-// ... Resto de los componentes (LocationsDashboard, Sidebar, App Root, etc) se mantienen igual ...
+// --- LocationsDashboard y resto de componentes ---
 const LocationsDashboard = () => {
     const [locations, setLocations] = useState<Location[]>([]);
     const [loading, setLoading] = useState(true);
