@@ -11,7 +11,6 @@ const cleanBase64 = (dataUrl: string) => {
 
 const getBase64FromUrl = async (url: string): Promise<string | null> => {
   try {
-    // Intentamos cargar la imagen. Si falla por CORS, retornamos null y la IA validará sin referencia.
     const response = await fetch(url, { mode: 'cors' });
     if (!response.ok) return null;
     const blob = await response.blob();
@@ -61,8 +60,14 @@ export const analyzeCheckIn = async (
   let attempt = 0;
 
   const executeAnalysis = async (): Promise<ValidationResult> => {
-    // Usamos el modelo gemini-2.5-flash-preview para mejor soporte de visión en modo preview
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Obtenemos la API Key del entorno inyectado
+    const apiKey = (process.env as any).API_KEY;
+    
+    if (!apiKey) {
+      throw new Error("API Key no detectada. Por favor, selecciona una llave API en el panel lateral de AI Studio (icono de llave).");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
     const parts: Part[] = [];
     
     let refBase64: string | null = null;
@@ -77,10 +82,10 @@ export const analyzeCheckIn = async (
     const checkInBase64 = cleanBase64(checkInImage);
     if (!checkInBase64) throw new Error("Captura de cámara vacía.");
 
-    const prompt = `Analiza para UpFest:
-      1. IDENTIDAD: ${refBase64 ? 'Compara la foto de referencia (1ra) con la actual (2da). ¿Es el mismo?' : '¿Hay un rostro humano visible?'}
-      2. VESTIMENTA: ¿Cumple con "${dressCodeDescription || 'Uniforme'}?
-      Responde JSON según esquema.`;
+    const prompt = `Analiza para la empresa UpFest:
+      1. IDENTIDAD: ${refBase64 ? 'Compara la foto de referencia (1ra) con la actual (2da). ¿Es la misma persona?' : '¿Se detecta un rostro humano claro en la imagen?'}
+      2. VESTIMENTA: ¿Cumple con el código: "${dressCodeDescription || 'Uniforme estándar'}"?
+      Responde estrictamente en formato JSON según el esquema proporcionado.`;
 
     if (refBase64) {
       parts.push({ inlineData: { mimeType: "image/jpeg", data: refBase64 } });
@@ -89,7 +94,7 @@ export const analyzeCheckIn = async (
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview", 
+      model: "gemini-3-flash-preview", 
       contents: { parts },
       config: {
         responseMimeType: "application/json",
@@ -99,7 +104,7 @@ export const analyzeCheckIn = async (
     });
 
     const resultText = response.text;
-    if (!resultText) throw new Error("Respuesta vacía de IA.");
+    if (!resultText) throw new Error("La IA devolvió una respuesta vacía.");
     return JSON.parse(resultText);
   };
 
@@ -115,16 +120,20 @@ export const analyzeCheckIn = async (
         continue;
       }
 
-      // Devolvemos el error real en la descripción para que el usuario pueda diagnosticar
-      const detail = error?.message || "Error desconocido";
+      const detail = error?.message || "Error desconocido en el servidor de IA.";
       return { 
           identityMatch: false, 
           dressCodeMatches: false, 
-          description: `Error IA: ${detail}. Revise conexión o API Key.`, 
+          description: `Error IA: ${detail}`, 
           confidence: 0 
       };
     }
   }
 
-  return { identityMatch: false, dressCodeMatches: false, description: "Fallo tras reintentos.", confidence: 0 };
+  return { 
+    identityMatch: false, 
+    dressCodeMatches: false, 
+    description: "Fallo de conexión tras varios intentos con la IA.", 
+    confidence: 0 
+  };
 };
