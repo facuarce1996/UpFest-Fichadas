@@ -40,6 +40,13 @@ const getFormattedDate = (dateStr: string) => {
   }
 };
 
+const formatMinutes = (mins: number) => {
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m.toString().padStart(2, '0')}m`;
+};
+
 // --- Clock View (User & Monitor) ---
 const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -141,6 +148,24 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const handleApplyFilter = () => { if (filterStartDate && filterEndDate) { setActiveQuickFilter(null); loadData(true); } };
   const handleClearFilter = () => { setFilterStartDate(''); setFilterEndDate(''); setActiveQuickFilter(null); loadData(true, '', ''); };
 
+  const getShiftDuration = (log: LogEntry) => {
+    if (log.type !== 'CHECK_OUT') return null;
+    const userLogsInOrder = [...adminLogs]
+      .filter(l => l.userId === log.userId)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    const currentIndex = userLogsInOrder.findIndex(l => l.id === log.id);
+    if (currentIndex <= 0) return null;
+
+    const previousLog = userLogsInOrder[currentIndex - 1];
+    if (previousLog.type === 'CHECK_IN') {
+      const diff = new Date(log.timestamp).getTime() - new Date(previousLog.timestamp).getTime();
+      const mins = Math.floor(diff / 60000);
+      return mins > 0 ? mins : null;
+    }
+    return null;
+  };
+
   const handleExportExcel = () => {
     if (adminLogs.length === 0) return alert("No hay datos para exportar.");
     
@@ -162,13 +187,20 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         if (current.type === 'CHECK_IN') {
           const next = sorted[i + 1];
           if (next && next.type === 'CHECK_OUT') {
+            const start = new Date(current.timestamp);
+            const end = new Date(next.timestamp);
+            const diffMs = end.getTime() - start.getTime();
+            const diffMins = Math.round(diffMs / 60000);
+
             reportData.push({
               'LEGAJO': current.legajo,
               'NOMBRE': current.userName,
-              'FECHA INGRESO': new Date(current.timestamp).toLocaleDateString('es-AR'),
-              'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
-              'FECHA EGRESO': new Date(next.timestamp).toLocaleDateString('es-AR'),
-              'HORA EGRESO': new Date(next.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'FECHA INGRESO': start.toLocaleDateString('es-AR'),
+              'HORA INGRESO': start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+              'FECHA EGRESO': end.toLocaleDateString('es-AR'),
+              'HORA EGRESO': end.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+              'MINUTOS TRABAJADOS': diffMins,
+              'DURACION': formatMinutes(diffMins),
               'VALIDA ROSTRO': current.identityStatus === 'MATCH' ? 'SI' : 'NO',
               'VALIDA VESTIMENTA': current.dressCodeStatus === 'PASS' ? 'SI' : 'NO',
               'SEDE': current.locationName,
@@ -180,9 +212,11 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               'LEGAJO': current.legajo,
               'NOMBRE': current.userName,
               'FECHA INGRESO': new Date(current.timestamp).toLocaleDateString('es-AR'),
-              'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
               'FECHA EGRESO': '---',
               'HORA EGRESO': '---',
+              'MINUTOS TRABAJADOS': 0,
+              'DURACION': 'Sin egreso',
               'VALIDA ROSTRO': current.identityStatus === 'MATCH' ? 'SI' : 'NO',
               'VALIDA VESTIMENTA': current.dressCodeStatus === 'PASS' ? 'SI' : 'NO',
               'SEDE': current.locationName,
@@ -196,7 +230,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             'FECHA INGRESO': '---',
             'HORA INGRESO': '---',
             'FECHA EGRESO': new Date(current.timestamp).toLocaleDateString('es-AR'),
-            'HORA EGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: true }),
+            'HORA EGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            'MINUTOS TRABAJADOS': 0,
+            'DURACION': 'Sin ingreso',
             'VALIDA ROSTRO': 'NO',
             'VALIDA VESTIMENTA': 'NO',
             'SEDE': current.locationName,
@@ -217,7 +253,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const ws = XLSX.utils.json_to_sheet(reportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Fichadas UpFest");
-    XLSX.writeFile(wb, `Reporte_Fichadas_UpFest_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `Reporte_Asistencia_UpFest_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   useEffect(() => {
@@ -312,7 +348,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               </div>
               <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto justify-center">
                 <button onClick={handleExportExcel} className="flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center gap-3 transition-all hover:bg-emerald-100 shadow-sm">
-                    <Download size={18}/><span className="text-[10px] font-black uppercase">Exportar Excel</span>
+                    <Download size={18}/><span className="text-[10px] font-black uppercase">Exportar Reporte</span>
                 </button>
                 <button onClick={() => setShowAlerts(!showAlerts)} className={`flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full border flex items-center justify-center gap-3 transition-all ${incidentLogs.length > 0 ? 'bg-red-50 border-red-200 text-red-600 shadow-lg shadow-red-100' : 'bg-slate-50 text-slate-400'}`}>
                     <Bell size={18} className={incidentLogs.length > 0 ? 'animate-bounce' : ''}/><span className="text-[10px] font-black uppercase">Alertas ({incidentLogs.length})</span>
@@ -362,6 +398,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <th className="p-6 text-[10px] font-black uppercase">Colaborador</th>
                     <th className="p-6 text-[10px] font-black uppercase text-center">Fecha / Hora</th>
                     <th className="p-6 text-[10px] font-black uppercase text-center">Tipo</th>
+                    <th className="p-6 text-[10px] font-black uppercase text-center">Duración</th>
                     <th className="p-6 text-[10px] font-black uppercase text-center border-l border-white/10">Identidad</th>
                     <th className="p-6 text-[10px] font-black uppercase text-center">Vestimenta</th>
                     <th className="p-6 text-[10px] font-black uppercase">Descripción IA</th>
@@ -370,41 +407,52 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {adminLogs.length === 0 ? (
-                    <tr><td colSpan={8} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
-                  ) : adminLogs.map(log => (
-                    <tr key={log.id} className="hover:bg-white transition-all">
-                      <td className="p-6 text-center">
-                        <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-14 h-14 mx-auto rounded-xl overflow-hidden border-2 border-white cursor-zoom-in shadow-md">
-                          {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
-                        </div>
-                      </td>
-                      <td className="p-6">
-                        <span className="block font-black text-slate-900 text-xs md:text-sm uppercase tracking-tight">{log.userName}</span>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Lgj: {log.legajo} | {log.locationName}</span>
-                      </td>
-                      <td className="p-6 text-center">
-                          <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase bg-slate-100 px-3 py-1 rounded-lg">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
-                          <span className="block text-[9px] text-slate-400 uppercase font-black mt-1.5">{getFormattedDate(log.timestamp)}</span>
-                      </td>
-                      <td className="p-6 text-center">
-                        <span className={`px-5 py-2 rounded-full text-[9px] font-black uppercase border-2 ${log.type === 'CHECK_IN' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                          {log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'}
-                        </span>
-                      </td>
-                      <td className="p-6 text-center border-l border-slate-100">
-                        <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.identityStatus === 'MATCH' ? 'Válido' : 'Fallo'}</span>
-                      </td>
-                      <td className="p-6 text-center">
-                        <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.dressCodeStatus === 'PASS' ? 'Correcto' : 'Error'}</span>
-                      </td>
-                      <td className="p-6 max-w-xs">
-                        <p className="text-[10px] italic text-slate-500 leading-relaxed line-clamp-2">"{log.aiFeedback}"</p>
-                      </td>
-                      <td className="p-6 text-center">
-                        <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-3 text-slate-200 hover:text-red-500 transition-all">{isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={20}/>}</button>
-                      </td>
-                    </tr>
-                  ))}
+                    <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
+                  ) : adminLogs.map(log => {
+                    const durationMins = getShiftDuration(log);
+                    return (
+                      <tr key={log.id} className="hover:bg-white transition-all">
+                        <td className="p-6 text-center">
+                          <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-14 h-14 mx-auto rounded-xl overflow-hidden border-2 border-white cursor-zoom-in shadow-md">
+                            {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
+                          </div>
+                        </td>
+                        <td className="p-6">
+                          <span className="block font-black text-slate-900 text-xs md:text-sm uppercase tracking-tight">{log.userName}</span>
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Lgj: {log.legajo} | {log.locationName}</span>
+                        </td>
+                        <td className="p-6 text-center">
+                            <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase bg-slate-100 px-3 py-1 rounded-lg">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="block text-[9px] text-slate-400 uppercase font-black mt-1.5">{getFormattedDate(log.timestamp)}</span>
+                        </td>
+                        <td className="p-6 text-center">
+                          <span className={`px-5 py-2 rounded-full text-[9px] font-black uppercase border-2 ${log.type === 'CHECK_IN' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                            {log.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'}
+                          </span>
+                        </td>
+                        <td className="p-6 text-center">
+                           {durationMins !== null ? (
+                             <div className="flex flex-col items-center">
+                               <span className="text-[10px] font-black text-slate-900 bg-orange-100 text-orange-700 px-2 py-1 rounded-lg">{formatMinutes(durationMins)}</span>
+                               <span className="text-[8px] font-black text-slate-400 uppercase mt-1">({durationMins} min)</span>
+                             </div>
+                           ) : <span className="text-slate-200">---</span>}
+                        </td>
+                        <td className="p-6 text-center border-l border-slate-100">
+                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.identityStatus === 'MATCH' ? 'Válido' : 'Fallo'}</span>
+                        </td>
+                        <td className="p-6 text-center">
+                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.dressCodeStatus === 'PASS' ? 'Correcto' : 'Error'}</span>
+                        </td>
+                        <td className="p-6 max-w-xs">
+                          <p className="text-[10px] italic text-slate-500 leading-relaxed line-clamp-2">"{log.aiFeedback}"</p>
+                        </td>
+                        <td className="p-6 text-center">
+                          <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-3 text-slate-200 hover:text-red-500 transition-all">{isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={20}/>}</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
            </div>
@@ -875,7 +923,7 @@ const AdminDashboard = () => {
   );
 };
 
-// --- Salones Dashboard ---
+// ... Resto de los componentes (LocationsDashboard, Sidebar, App Root, etc) se mantienen igual ...
 const LocationsDashboard = () => {
     const [locations, setLocations] = useState<Location[]>([]);
     const [loading, setLoading] = useState(true);
@@ -1049,7 +1097,6 @@ const LocationsDashboard = () => {
     );
 };
 
-// --- Sidebar y Layout ---
 const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl, isMobileMenuOpen, setIsMobileMenuOpen }: any) => {
   const NavButton = ({ tab, icon: Icon, label }: any) => (
     <button onClick={() => { setActiveTab(tab); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition ${activeTab === tab ? 'bg-orange-50 text-orange-700' : 'text-slate-400 hover:bg-slate-50'}`}>
