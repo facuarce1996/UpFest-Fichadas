@@ -60,17 +60,13 @@ export const analyzeCheckIn = async (
   let attempt = 0;
 
   const executeAnalysis = async (): Promise<ValidationResult> => {
-    // Obtenemos la API Key del entorno inyectado
-    const apiKey = (process.env as any).API_KEY;
+    // Instanciamos el cliente justo antes de usarlo para capturar la API_KEY del entorno
+    // No usamos una validación manual previa para evitar falsos negativos en móviles
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    if (!apiKey) {
-      throw new Error("API Key no detectada. Por favor, selecciona una llave API en el panel lateral de AI Studio (icono de llave).");
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
     const parts: Part[] = [];
-    
     let refBase64: string | null = null;
+    
     if (referenceImage) {
         if (referenceImage.startsWith('http')) {
             refBase64 = await getBase64FromUrl(referenceImage);
@@ -114,17 +110,28 @@ export const analyzeCheckIn = async (
     } catch (error: any) {
       console.error("Gemini Error:", error);
       
+      const errorMsg = error?.message || "";
+      
+      // Si el error indica falta de API Key, damos una instrucción clara
+      if (errorMsg.includes("API Key") || errorMsg.includes("apiKey")) {
+        return {
+          identityMatch: false,
+          dressCodeMatches: false,
+          description: "Error IA: API Key no detectada. Por favor, asegúrese de haber seleccionado una llave en el icono de llave del panel lateral (en móviles puede requerir abrir el menú de la plataforma).",
+          confidence: 0
+        };
+      }
+
       if (attempt < MAX_RETRIES) {
         attempt++;
         await new Promise(r => setTimeout(r, 1000));
         continue;
       }
 
-      const detail = error?.message || "Error desconocido en el servidor de IA.";
       return { 
           identityMatch: false, 
           dressCodeMatches: false, 
-          description: `Error IA: ${detail}`, 
+          description: `Error IA: ${errorMsg}`, 
           confidence: 0 
       };
     }
@@ -133,7 +140,7 @@ export const analyzeCheckIn = async (
   return { 
     identityMatch: false, 
     dressCodeMatches: false, 
-    description: "Fallo de conexión tras varios intentos con la IA.", 
+    description: "Fallo de conexión tras varios intentos.", 
     confidence: 0 
   };
 };
