@@ -58,7 +58,6 @@ export const analyzeCheckIn = async (
 ): Promise<ValidationResult> => {
   
   try {
-    // Creamos la instancia justo antes de usarla para asegurar que tome la key del entorno actual
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const parts: Part[] = [];
@@ -102,9 +101,10 @@ export const analyzeCheckIn = async (
   } catch (error: any) {
     console.error("Gemini Analysis Error:", error);
     
-    // Si es un error de API Key, lo propagamos para que la UI lo maneje
-    if (error.message?.includes("403") || error.message?.includes("API key")) {
-        throw error;
+    const errorMsg = error?.message || "";
+    // Detección de llave filtrada (leaked), expirada (expired) o denegada (403)
+    if (errorMsg.includes("leaked") || errorMsg.includes("403") || errorMsg.includes("API key") || errorMsg.includes("expired")) {
+        throw new Error("API_KEY_INVALID_OR_LEAKED");
     }
 
     return {
