@@ -102,9 +102,10 @@ export const analyzeCheckIn = async (
   } catch (error: any) {
     console.error("Gemini Analysis Error:", error);
     
-    // Si es un error de API Key, lo propagamos para que la UI lo maneje
-    if (error.message?.includes("403") || error.message?.includes("API key")) {
-        throw error;
+    const errorMsg = error?.message || "";
+    // Si es un error de API Key (expirada 400 o prohibida 403), lanzamos un error específico
+    if (errorMsg.includes("403") || errorMsg.includes("400") || errorMsg.includes("API key") || errorMsg.includes("expired")) {
+        throw new Error("API_KEY_EXPIRED");
     }
 
     return {
