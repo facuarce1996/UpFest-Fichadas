@@ -12,7 +12,7 @@ import {
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity, Eye, EyeOff
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity, Eye, EyeOff, CalendarPlus, ChevronDown, TimerOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -61,11 +61,26 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [showAlerts, setShowAlerts] = useState(false);
+  const [showNoExitsModal, setShowNoExitsModal] = useState(false);
   
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
   const [isFiltering, setIsFiltering] = useState(false);
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
+  
+  // Estado para Fichada Manual
+  const [showManualLogModal, setShowManualLogModal] = useState(false);
+  const [manualUserSearch, setManualUserSearch] = useState('');
+  const [isUserListOpen, setIsUserListOpen] = useState(false);
+  const [manualLogData, setManualLogData] = useState({
+    userId: '',
+    type: 'BOTH' as 'CHECK_IN' | 'CHECK_OUT' | 'BOTH',
+    date: new Date().toISOString().split('T')[0],
+    checkInTime: '09:00',
+    checkOutTime: '18:00',
+    locationId: ''
+  });
+  const [isSavingManual, setIsSavingManual] = useState(false);
   
   const [successAction, setSuccessAction] = useState<{ type: string, countdown: number } | null>(null);
 
@@ -295,9 +310,11 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       try {
         iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
       } catch (err: any) {
-        if (isAIStudio && (err.message.includes("401") || err.message.includes("Key") || err.message.includes("403"))) {
-          setLoadingMsg("CONFIGURANDO LLAVE...");
+        // Manejo específico del error 403 o problemas de API Key
+        if (isAIStudio && (err.message?.includes("403") || err.message?.includes("API key") || err.message?.includes("401"))) {
+          setLoadingMsg("LLAVE INVÁLIDA. SELECCIONA UNA...");
           await handleOpenApiKeyDialog();
+          // Reintento una vez después de abrir el diálogo
           iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
         } else {
           throw err;
@@ -305,7 +322,23 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       }
 
       const lastLog = await fetchLastLog(user.id);
-      const type = (!lastLog || lastLog.type === 'CHECK_OUT') ? 'CHECK_IN' : 'CHECK_OUT';
+      let type: 'CHECK_IN' | 'CHECK_OUT' = 'CHECK_IN';
+      
+      // Lógica de 20 horas: Si el último registro es un ingreso pero pasaron más de 20hs, se fuerza nuevo ingreso.
+      if (lastLog && lastLog.type === 'CHECK_IN') {
+        const lastTimestamp = new Date(lastLog.timestamp).getTime();
+        const now = new Date().getTime();
+        const diffHours = (now - lastTimestamp) / (1000 * 60 * 60);
+        
+        if (diffHours < 20) {
+          type = 'CHECK_OUT';
+        } else {
+          type = 'CHECK_IN'; // Han pasado más de 20 horas, el anterior se considera "Sin Egreso"
+        }
+      } else {
+        type = 'CHECK_IN';
+      }
+
       const newLog: LogEntry = {
         id: '', userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
         locationId: deviceLocation?.id || 'manual', locationName: deviceLocation?.name || 'Manual', locationStatus: locStatus,
@@ -318,7 +351,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setSuccessAction({ type: type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO', countdown: 7 });
     } catch (error: any) { 
       console.error("Error en validación:", error);
-      alert("Error en validación: " + error.message);
+      alert("Error en validación: " + (error.message || "Error desconocido"));
       if (isAIStudio) await handleOpenApiKeyDialog();
     } finally { setLoading(false); setLoadingMsg(''); }
   };
@@ -351,10 +384,169 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     catch (e: any) { alert(e.message); } finally { setIsDeleting(null); }
   };
 
+  const handleSaveManualLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualLogData.userId || !manualLogData.locationId) return alert("Selecciona colaborador y sede.");
+    setIsSavingManual(true);
+    try {
+      const targetUser = allUsers.find(u => u.id === manualLogData.userId);
+      const targetLoc = locations.find(l => l.id === manualLogData.locationId);
+      if (!targetUser || !targetLoc) throw new Error("Datos de usuario o sede inválidos");
+
+      const checkInTS = new Date(`${manualLogData.date}T${manualLogData.checkInTime}:00`).toISOString();
+      const checkOutTS = new Date(`${manualLogData.date}T${manualLogData.checkOutTime}:00`).toISOString();
+
+      if (manualLogData.type === 'CHECK_IN' || manualLogData.type === 'BOTH') {
+        const inLog: LogEntry = {
+          id: '', userId: targetUser.id, userName: targetUser.name, legajo: targetUser.legajo, timestamp: checkInTS, type: 'CHECK_IN',
+          locationId: targetLoc.id, locationName: targetLoc.name, locationStatus: 'SKIPPED',
+          dressCodeStatus: 'SKIPPED', identityStatus: 'SKIPPED',
+          photoEvidence: '', aiFeedback: 'Carga manual por administrador'
+        };
+        await addLog(inLog);
+      }
+
+      if (manualLogData.type === 'CHECK_OUT' || manualLogData.type === 'BOTH') {
+        const outLog: LogEntry = {
+          id: '', userId: targetUser.id, userName: targetUser.name, legajo: targetUser.legajo, timestamp: checkOutTS, type: 'CHECK_OUT',
+          locationId: targetLoc.id, locationName: targetLoc.name, locationStatus: 'SKIPPED',
+          dressCodeStatus: 'SKIPPED', identityStatus: 'SKIPPED',
+          photoEvidence: '', aiFeedback: 'Carga manual por administrador'
+        };
+        await addLog(outLog);
+      }
+
+      alert("Fichada manual cargada con éxito.");
+      setShowManualLogModal(false);
+      setManualUserSearch('');
+      loadData(true);
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setIsSavingManual(false);
+    }
+  };
+
+  const filteredManualUsers = allUsers.filter(u => 
+    u.name.toLowerCase().includes(manualUserSearch.toLowerCase()) || 
+    u.dni.toLowerCase().includes(manualUserSearch.toLowerCase()) ||
+    u.legajo.toLowerCase().includes(manualUserSearch.toLowerCase())
+  );
+
   if (user.role === 'Admin') {
     const incidentLogs = adminLogs.filter(l => l.dressCodeStatus === 'FAIL' || l.identityStatus === 'NO_MATCH');
+    
+    // Lógica para detectar fichadas que se consideran "Sin Egreso"
+    const noExitLogs = adminLogs.filter(log => {
+      if (log.type !== 'CHECK_IN') return false;
+      const userLogs = adminLogs
+        .filter(l => l.userId === log.userId)
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const idx = userLogs.findIndex(l => l.id === log.id);
+      const nextLog = userLogs[idx + 1];
+      const isOld = (new Date().getTime() - new Date(log.timestamp).getTime()) > 20 * 60 * 60 * 1000;
+      // Es sin egreso si la siguiente fichada es otro ingreso O si no hay siguiente y pasó más de 20hs
+      return (nextLog && nextLog.type === 'CHECK_IN') || (!nextLog && isOld);
+    });
+
     return (
       <div className="max-w-full mx-auto p-4 md:p-8 space-y-6 md:space-y-8 animate-in fade-in duration-500">
+        
+        {/* MODAL FICHADA MANUAL CON BUSCADOR */}
+        {showManualLogModal && (
+          <div className="fixed inset-0 z-[300] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-visible animate-in zoom-in-95 duration-300">
+               <div className="p-8 border-b flex items-center justify-between">
+                  <h3 className="text-2xl font-black uppercase tracking-tighter">Carga Manual de Fichada</h3>
+                  <button onClick={() => { setShowManualLogModal(false); setManualUserSearch(''); setIsUserListOpen(false); }} className="p-2 text-slate-400 hover:text-slate-900"><X/></button>
+               </div>
+               <form onSubmit={handleSaveManualLog} className="p-8 space-y-6">
+                  <div className="space-y-2 relative">
+                    <label className="text-[10px] font-black uppercase text-slate-400">Colaborador</label>
+                    <div className="relative group">
+                       <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400">
+                         <Search size={18} />
+                       </div>
+                       <input 
+                         type="text" 
+                         placeholder="Escribe DNI o Nombre..." 
+                         value={manualUserSearch} 
+                         onFocus={() => setIsUserListOpen(true)}
+                         onChange={e => { setManualUserSearch(e.target.value); setIsUserListOpen(true); }}
+                         className="w-full pl-12 pr-12 py-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none focus:ring-2 focus:ring-orange-500/20" 
+                       />
+                       <button type="button" onClick={() => setIsUserListOpen(!isUserListOpen)} className="absolute inset-y-0 right-4 flex items-center text-slate-400">
+                          <ChevronDown size={18} className={`transition-transform ${isUserListOpen ? 'rotate-180' : ''}`} />
+                       </button>
+                    </div>
+
+                    {isUserListOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-100 max-h-60 overflow-y-auto z-[310] py-2 animate-in fade-in slide-in-from-top-2">
+                         {filteredManualUsers.length === 0 ? (
+                            <div className="px-6 py-4 text-slate-400 text-xs font-bold uppercase italic">Sin coincidencias</div>
+                         ) : filteredManualUsers.map(u => (
+                            <button 
+                              key={u.id} 
+                              type="button"
+                              onClick={() => {
+                                setManualLogData({...manualLogData, userId: u.id});
+                                setManualUserSearch(u.name.toUpperCase());
+                                setIsUserListOpen(false);
+                              }}
+                              className="w-full text-left px-6 py-3 hover:bg-orange-50 transition-colors flex items-center justify-between group"
+                            >
+                               <div>
+                                  <span className="block text-xs font-black text-slate-900 uppercase group-hover:text-orange-700">{u.name}</span>
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">DNI: {u.dni} | Lgj: {u.legajo}</span>
+                               </div>
+                               {manualLogData.userId === u.id && <Check size={16} className="text-orange-600" />}
+                            </button>
+                         ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400">Tipo de Fichada</label>
+                    <select value={manualLogData.type} onChange={e => setManualLogData({...manualLogData, type: e.target.value as any})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none">
+                       <option value="CHECK_IN">SÓLO INGRESO</option>
+                       <option value="CHECK_OUT">SÓLO EGRESO</option>
+                       <option value="BOTH">INGRESO Y EGRESO</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400">Fecha</label>
+                      <input type="date" value={manualLogData.date} onChange={e => setManualLogData({...manualLogData, date: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400">Sede</label>
+                      <select value={manualLogData.locationId} onChange={e => setManualLogData({...manualLogData, locationId: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none">
+                         <option value="">Seleccionar sede...</option>
+                         {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className={`space-y-2 ${manualLogData.type === 'CHECK_OUT' ? 'opacity-30 pointer-events-none' : ''}`}>
+                      <label className="text-[10px] font-black uppercase text-slate-400">Hora Ingreso</label>
+                      <input type="time" value={manualLogData.checkInTime} onChange={e => setManualLogData({...manualLogData, checkInTime: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" />
+                    </div>
+                    <div className={`space-y-2 ${manualLogData.type === 'CHECK_IN' ? 'opacity-30 pointer-events-none' : ''}`}>
+                      <label className="text-[10px] font-black uppercase text-slate-400">Hora Egreso</label>
+                      <input type="time" value={manualLogData.checkOutTime} onChange={e => setManualLogData({...manualLogData, checkOutTime: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" />
+                    </div>
+                  </div>
+                  <div className="pt-4 flex gap-4">
+                    <button type="button" onClick={() => { setShowManualLogModal(false); setManualUserSearch(''); setIsUserListOpen(false); }} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
+                    <button type="submit" disabled={isSavingManual} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center justify-center gap-2">
+                       {isSavingManual ? <RefreshCw className="animate-spin" size={14}/> : <Save size={14}/>} Guardar Fichada
+                    </button>
+                  </div>
+               </form>
+            </div>
+          </div>
+        )}
+
         {/* MODAL DE ALERTAS DETALLADAS CON FILTROS */}
         {showAlerts && (
           <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-2 md:p-6">
@@ -484,6 +676,81 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </div>
         )}
 
+        {/* MODAL DE SIN EGRESO */}
+        {showNoExitsModal && (
+          <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-2 md:p-6">
+            <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-[40px] md:rounded-[64px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 border-4 border-slate-100">
+                <div className="p-8 md:p-12 border-b flex items-center justify-between gap-6 bg-white relative">
+                   <div className="flex items-center gap-6">
+                      <div className="w-16 h-16 bg-orange-50 rounded-[24px] flex items-center justify-center text-orange-600 shadow-inner">
+                        <TimerOff size={32}/>
+                      </div>
+                      <div>
+                        <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+                          INGRESOS SIN EGRESO
+                        </h2>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 italic flex items-center gap-2">
+                           <Clock size={12}/> Regla de las 20 horas - UpFest Control
+                        </p>
+                      </div>
+                   </div>
+                   <button onClick={() => setShowNoExitsModal(false)} className="w-14 h-14 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-orange-600 hover:text-white transition-all shadow-sm"><X size={24}/></button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 md:p-12 space-y-6 bg-slate-50/30">
+                   {noExitLogs.length === 0 ? (
+                     <div className="py-32 text-center flex flex-col items-center gap-8 animate-in fade-in zoom-in-95">
+                        <div className="w-32 h-32 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 shadow-inner">
+                          <CheckCircle size={64}/>
+                        </div>
+                        <p className="text-xl font-black text-slate-800 uppercase tracking-tighter">NÓMINA AL DÍA</p>
+                     </div>
+                   ) : (
+                     <div className="grid grid-cols-1 gap-6">
+                        {noExitLogs.map(log => (
+                          <div key={log.id} className="bg-white border-2 border-slate-100 rounded-[40px] p-6 md:p-10 flex flex-col md:flex-row gap-10 items-start md:items-center shadow-sm hover:shadow-2xl hover:border-orange-100 transition-all group animate-in slide-in-from-bottom-4">
+                              <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-40 h-40 md:w-56 md:h-56 shrink-0 bg-slate-900 rounded-[32px] overflow-hidden border-8 border-slate-50 cursor-zoom-in relative group/img shadow-2xl">
+                                {log.photoEvidence ? (
+                                  <img src={log.photoEvidence} className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-700" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-slate-500"><UserIcon size={48}/></div>
+                                )}
+                              </div>
+                              <div className="flex-1 space-y-6">
+                                <div className="space-y-2">
+                                    <div className="flex flex-wrap items-center gap-4">
+                                      <span className="font-black text-3xl text-slate-900 uppercase tracking-tighter leading-none">{log.userName}</span>
+                                      <span className="px-4 py-1.5 bg-slate-100 text-slate-500 text-[10px] font-black uppercase rounded-lg">Lgj: {log.legajo}</span>
+                                    </div>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                      <Building size={14}/> Sede: {log.locationName} <span className="text-slate-200">|</span> <Clock size={14}/> In: {new Date(log.timestamp).toLocaleString('es-AR')}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-3 px-5 py-2.5 bg-orange-600 text-white rounded-2xl shadow-lg w-fit">
+                                    <TimerOff size={16}/>
+                                    <span className="text-[10px] font-black uppercase tracking-widest">Turno sin cierre</span>
+                                </div>
+                                <div className="bg-slate-50 p-6 rounded-[28px] border-2 border-slate-100">
+                                    <p className="text-[11px] italic text-slate-600 leading-relaxed font-medium">
+                                      El sistema cerrará este turno automáticamente cuando el colaborador vuelva a fichar un ingreso.
+                                    </p>
+                                </div>
+                              </div>
+                          </div>
+                        ))}
+                     </div>
+                   )}
+                </div>
+
+                <div className="p-10 md:p-14 border-t bg-white flex justify-center">
+                   <button onClick={() => setShowNoExitsModal(false)} className="w-full md:w-80 py-6 bg-slate-900 text-white rounded-[28px] font-black uppercase tracking-[0.2em] shadow-2xl hover:scale-[1.05] transition-all text-xs">
+                     Cerrar
+                   </button>
+                </div>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-[24px] md:rounded-[32px] p-5 md:p-10 border border-slate-200 shadow-sm overflow-hidden">
            <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-6">
               <div className="text-center md:text-left">
@@ -492,12 +759,18 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 </h3>
                 <p className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest">En vivo - UpFest Control</p>
               </div>
-              <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto justify-center">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto justify-center">
+                <button onClick={() => setShowManualLogModal(true)} className="flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full bg-slate-900 text-white flex items-center justify-center gap-3 transition-all hover:bg-slate-800 shadow-sm">
+                    <CalendarPlus size={18}/><span className="text-[10px] font-black uppercase">Fichada Manual</span>
+                </button>
                 <button onClick={handleExportExcel} className="flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center gap-3 transition-all hover:bg-emerald-100 shadow-sm">
                     <Download size={18}/><span className="text-[10px] font-black uppercase">Exportar Reporte</span>
                 </button>
                 <button onClick={() => setShowAlerts(true)} className={`flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full border flex items-center justify-center gap-3 transition-all ${incidentLogs.length > 0 ? 'bg-red-50 border-red-200 text-red-600 shadow-lg shadow-red-100' : 'bg-slate-50 text-slate-400'}`}>
                     <Bell size={18} className={incidentLogs.length > 0 ? 'animate-bounce' : ''}/><span className="text-[10px] font-black uppercase">Alertas ({incidentLogs.length})</span>
+                </button>
+                <button onClick={() => setShowNoExitsModal(true)} className={`flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full border flex items-center justify-center gap-3 transition-all ${noExitLogs.length > 0 ? 'bg-orange-50 border-orange-200 text-orange-600 shadow-lg shadow-orange-100' : 'bg-slate-50 text-slate-400'}`}>
+                    <TimerOff size={18}/><span className="text-[10px] font-black uppercase">Sin Egreso ({noExitLogs.length})</span>
                 </button>
               </div>
            </div>
@@ -556,11 +829,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
                   ) : adminLogs.map(log => {
                     const durationMins = getShiftDuration(log, adminLogs);
+                    const isNoExitCase = noExitLogs.some(n => n.id === log.id);
                     return (
-                      <tr key={log.id} className="hover:bg-white transition-all">
+                      <tr key={log.id} className={`hover:bg-white transition-all ${isNoExitCase ? 'bg-orange-50/20' : ''}`}>
                         <td className="p-6 text-center">
                           <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-14 h-14 mx-auto rounded-xl overflow-hidden border-2 border-white cursor-zoom-in shadow-md">
-                            {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
+                            {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center">{log.aiFeedback.includes('manual') ? <FileText className="text-slate-300" /> : <UserIcon className="text-slate-300" />}</div>}
                           </div>
                         </td>
                         <td className="p-6">
@@ -582,13 +856,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                <span className="text-[10px] font-black text-slate-900 bg-orange-100 text-orange-700 px-2 py-1 rounded-lg">{formatMinutes(durationMins)}</span>
                                <span className="text-[8px] font-black text-slate-400 uppercase mt-1">({durationMins} min)</span>
                              </div>
-                           ) : <span className="text-slate-200">---</span>}
+                           ) : <span className="text-slate-200">{isNoExitCase ? <span className="text-[9px] font-black text-orange-500 uppercase">Sin Egreso</span> : '---'}</span>}
                         </td>
                         <td className="p-6 text-center border-l border-slate-100">
-                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.identityStatus === 'MATCH' ? 'Válido' : 'Fallo'}</span>
+                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-700' : (log.identityStatus === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700')}`}>{log.identityStatus === 'MATCH' ? 'Válido' : (log.identityStatus === 'SKIPPED' ? 'Omitido' : 'Fallo')}</span>
                         </td>
                         <td className="p-6 text-center">
-                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{log.dressCodeStatus === 'PASS' ? 'Correcto' : 'Error'}</span>
+                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : (log.dressCodeStatus === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700')}`}>{log.dressCodeStatus === 'PASS' ? 'Correcto' : (log.dressCodeStatus === 'SKIPPED' ? 'Omitido' : 'Error')}</span>
                         </td>
                         <td className="p-6 max-w-xs">
                           <p className="text-[10px] italic text-slate-500 leading-relaxed line-clamp-2">"{log.aiFeedback}"</p>
@@ -677,7 +951,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                           </div>
                           <div>
                               <span className="block font-black text-xs uppercase">{l.type === 'CHECK_IN' ? 'Ingreso' : 'Egreso'}</span>
-                              <span className="text-[9px] font-bold text-slate-400 uppercase leading-none">{l.locationName}</span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-none">{l.locationName}</span>
                           </div>
                       </div>
                       <div className="flex flex-col items-end">
@@ -1195,7 +1469,7 @@ const LocationsDashboard = () => {
                 <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter leading-none">Sedes / Salones</h1>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 italic">CONFIGURACIÓN DE GEOCERCAS</p>
               </div>
-              <button onClick={() => setIsCreatingLoc(true)} className="w-full md:w-auto bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
+              <button onClick={() => setIsCreatingLoc(true)} className="w-full md:auto bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
                 <Plus size={18} /> Nueva Sede
               </button>
             </div>

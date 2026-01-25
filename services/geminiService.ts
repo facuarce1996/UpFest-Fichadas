@@ -57,8 +57,8 @@ export const analyzeCheckIn = async (
   referenceImage: string | null
 ): Promise<ValidationResult> => {
   
-  const executeAnalysis = async (): Promise<ValidationResult> => {
-    // process.env.API_KEY está inyectado de forma fija por Vite
+  try {
+    // Creamos la instancia justo antes de usarla para asegurar que tome la key del entorno actual
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const parts: Part[] = [];
@@ -99,18 +99,18 @@ export const analyzeCheckIn = async (
     const resultText = response.text;
     if (!resultText) throw new Error("La IA no pudo procesar la imagen.");
     return JSON.parse(resultText);
-  };
-
-  try {
-    return await executeAnalysis();
   } catch (error: any) {
     console.error("Gemini Analysis Error:", error);
     
-    // Si el error persiste a pesar de tener la key, devolvemos un resultado fallido con explicación
+    // Si es un error de API Key, lo propagamos para que la UI lo maneje
+    if (error.message?.includes("403") || error.message?.includes("API key")) {
+        throw error;
+    }
+
     return {
       identityMatch: false,
       dressCodeMatches: false,
-      description: `Error en validación biometríca: ${error?.message || 'Error de conexión con el servicio de IA'}.`,
+      description: `Error en análisis biometríco: ${error?.message || 'Error de conexión'}.`,
       confidence: 0
     };
   }
