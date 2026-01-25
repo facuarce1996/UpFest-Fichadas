@@ -12,7 +12,7 @@ import {
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity, Eye
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity, Eye, EyeOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -711,6 +711,7 @@ const AdminDashboard = () => {
   const [importing, setImporting] = useState(false);
   const [isDeletingUser, setIsDeletingUser] = useState<string | null>(null);
   const [dbHealthy, setDbHealthy] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -731,6 +732,7 @@ const AdminDashboard = () => {
   useEffect(() => { 
     if (editingUser) setFormData({ ...editingUser, schedule: editingUser.schedule || [], assignedLocations: editingUser.assignedLocations || [], isActive: editingUser.isActive }); 
     else setFormData({ role: 'Mozo', schedule: [], assignedLocations: [], password: '1234', legajo: '', isActive: true }); 
+    setShowPassword(false);
   }, [editingUser, isCreating]);
 
   const handleDownloadTemplate = () => {
@@ -798,7 +800,7 @@ const AdminDashboard = () => {
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault(); 
-    if (!formData.name || !formData.dni) return alert("Nombre y DNI obligatorios");
+    if (!formData.name || !formData.dni || !formData.password) return alert("Nombre, DNI y Contraseña obligatorios");
     setFormSaving(true); 
     try { 
       await saveUser(formData as User); 
@@ -963,20 +965,39 @@ const AdminDashboard = () => {
                 </div>
 
                 <div className="xl:col-span-2 space-y-6 md:space-y-10">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div className="col-span-full space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nombre Completo</label>
                       <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none uppercase text-sm md:text-base border border-transparent focus:border-slate-200" required />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">DNI</label>
-                      <input type="text" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm md:text-base border border-transparent focus:border-slate-200" required />
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">DNI (Usuario)</label>
+                      <input type="text" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Rol / Puesto</label>
-                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm md:text-base border border-transparent focus:border-slate-200">
+                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm border border-transparent focus:border-slate-200">
                         {DEFAULT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                       </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Clave de Acceso</label>
+                      <div className="relative">
+                        <input 
+                          type={showPassword ? "text" : "password"} 
+                          value={formData.password || ''} 
+                          onChange={e => setFormData({...formData, password: e.target.value})} 
+                          className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200 pr-12" 
+                          required 
+                        />
+                        <button 
+                          type="button" 
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showPassword ? <EyeOff size={20}/> : <Eye size={20}/>}
+                        </button>
+                      </div>
                     </div>
                     <div className="col-span-full space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Vestimenta Requerida</label>
