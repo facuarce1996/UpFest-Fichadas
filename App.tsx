@@ -53,6 +53,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [deviceLocation, setDeviceLocation] = useState<Location | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
@@ -275,19 +276,45 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     let active = true;
     async function startCamera() {
       if (cameraActive) {
+        setCameraError(null);
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } } });
-          if (active && videoRef.current) { streamRef.current = stream; videoRef.current.srcObject = stream; }
-          else { stream.getTracks().forEach(t => t.stop()); }
-        } catch (err) { if (active) setCameraActive(false); }
-      } else { stopCamera(); }
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+             throw new Error("El navegador no soporta acceso a cámara o requiere conexión segura (HTTPS).");
+          }
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+              facingMode: 'user', 
+              width: { ideal: 720 }, 
+              height: { ideal: 720 } 
+            } 
+          });
+          if (active && videoRef.current) { 
+            streamRef.current = stream; 
+            videoRef.current.srcObject = stream; 
+          }
+          else { 
+            stream.getTracks().forEach(t => t.stop()); 
+          }
+        } catch (err: any) { 
+          console.error("Error al iniciar cámara:", err);
+          if (active) {
+            setCameraActive(false);
+            setCameraError(err.message || "Error al acceder a la cámara.");
+          }
+        }
+      } else { 
+        stopCamera(); 
+      }
     }
     startCamera();
     return () => { active = false; stopCamera(); };
   }, [cameraActive]);
 
   const stopCamera = () => {
-    if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
+    if (streamRef.current) { 
+        streamRef.current.getTracks().forEach(track => track.stop()); 
+        streamRef.current = null; 
+    }
     if (videoRef.current) videoRef.current.srcObject = null;
   };
 
@@ -310,11 +337,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       try {
         iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
       } catch (err: any) {
-        // Manejo específico del error 403 o problemas de API Key
         if (isAIStudio && (err.message?.includes("403") || err.message?.includes("API key") || err.message?.includes("401"))) {
           setLoadingMsg("LLAVE INVÁLIDA. SELECCIONA UNA...");
           await handleOpenApiKeyDialog();
-          // Reintento una vez después de abrir el diálogo
           iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
         } else {
           throw err;
@@ -324,17 +349,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const lastLog = await fetchLastLog(user.id);
       let type: 'CHECK_IN' | 'CHECK_OUT' = 'CHECK_IN';
       
-      // Lógica de 20 horas: Si el último registro es un ingreso pero pasaron más de 20hs, se fuerza nuevo ingreso.
       if (lastLog && lastLog.type === 'CHECK_IN') {
         const lastTimestamp = new Date(lastLog.timestamp).getTime();
         const now = new Date().getTime();
         const diffHours = (now - lastTimestamp) / (1000 * 60 * 60);
-        
-        if (diffHours < 20) {
-          type = 'CHECK_OUT';
-        } else {
-          type = 'CHECK_IN'; // Han pasado más de 20 horas, el anterior se considera "Sin Egreso"
-        }
+        if (diffHours < 20) type = 'CHECK_OUT';
+        else type = 'CHECK_IN';
       } else {
         type = 'CHECK_IN';
       }
@@ -361,17 +381,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const context = canvasRef.current.getContext('2d');
       if (context) {
         if (videoRef.current.videoWidth === 0) return;
-        
         canvasRef.current.width = videoRef.current.videoWidth;
         canvasRef.current.height = videoRef.current.videoHeight;
         context.drawImage(videoRef.current, 0, 0);
         const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
-        
         if (dataUrl && dataUrl.length > 10) {
           setPhoto(dataUrl);
           setCameraActive(false);
-        } else {
-          console.error("Captura de foto fallida: dataUrl inválido.");
         }
       }
     }
@@ -435,8 +451,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   if (user.role === 'Admin') {
     const incidentLogs = adminLogs.filter(l => l.dressCodeStatus === 'FAIL' || l.identityStatus === 'NO_MATCH');
-    
-    // Lógica para detectar fichadas que se consideran "Sin Egreso"
     const noExitLogs = adminLogs.filter(log => {
       if (log.type !== 'CHECK_IN') return false;
       const userLogs = adminLogs
@@ -445,14 +459,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const idx = userLogs.findIndex(l => l.id === log.id);
       const nextLog = userLogs[idx + 1];
       const isOld = (new Date().getTime() - new Date(log.timestamp).getTime()) > 20 * 60 * 60 * 1000;
-      // Es sin egreso si la siguiente fichada es otro ingreso O si no hay siguiente y pasó más de 20hs
       return (nextLog && nextLog.type === 'CHECK_IN') || (!nextLog && isOld);
     });
 
     return (
       <div className="max-w-full mx-auto p-4 md:p-8 space-y-6 md:space-y-8 animate-in fade-in duration-500">
         
-        {/* MODAL FICHADA MANUAL CON BUSCADOR */}
         {showManualLogModal && (
           <div className="fixed inset-0 z-[300] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-visible animate-in zoom-in-95 duration-300">
@@ -547,7 +559,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </div>
         )}
 
-        {/* MODAL DE ALERTAS DETALLADAS CON FILTROS */}
         {showAlerts && (
           <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-2 md:p-6">
             <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-[40px] md:rounded-[64px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 border-4 border-slate-100">
@@ -568,7 +579,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                    <button onClick={() => setShowAlerts(false)} className="w-14 h-14 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 hover:bg-rose-600 hover:text-white transition-all shadow-sm"><X size={24}/></button>
                 </div>
 
-                {/* FILTROS DENTRO DE ALERTAS */}
                 <div className="px-8 py-6 md:px-12 bg-slate-50 border-b space-y-4">
                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mr-2 flex items-center gap-1"><Filter size={12}/> Periodo Alertas:</span>
@@ -676,7 +686,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </div>
         )}
 
-        {/* MODAL DE SIN EGRESO */}
         {showNoExitsModal && (
           <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-2 md:p-6">
             <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-[40px] md:rounded-[64px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 border-4 border-slate-100">
@@ -900,9 +909,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </div>
           <div className="aspect-square rounded-[32px] overflow-hidden bg-slate-900 mb-6 relative border-4 border-slate-100 shadow-inner">
              {!cameraActive && !photo && (
-               <button onClick={() => setCameraActive(true)} className="absolute inset-0 text-white font-black uppercase text-xs flex flex-col items-center justify-center gap-4 hover:bg-slate-800 transition-colors">
-                 <div className="w-16 h-16 rounded-full bg-orange-600 flex items-center justify-center shadow-xl ring-8 ring-orange-50"><Camera size={28}/></div>
+               <button onClick={() => setCameraActive(true)} className="absolute inset-0 text-white font-black uppercase text-xs flex flex-col items-center justify-center gap-4 hover:bg-slate-800 transition-colors px-6 text-center">
+                 <div className="w-16 h-16 rounded-full bg-orange-600 flex items-center justify-center shadow-xl ring-8 ring-orange-50 mb-2"><Camera size={28}/></div>
                  Activar Cámara
+                 {cameraError && <p className="text-rose-400 text-[8px] mt-4 max-w-[200px] leading-tight">{cameraError}</p>}
                </button>
              )}
              {cameraActive && <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />}
@@ -919,6 +929,17 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             {photo && !loading && <button onClick={handleClockAction} className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3">Confirmar Fichada <ArrowRight size={20}/></button>}
             {photo && !loading && <button onClick={() => { setPhoto(null); setCameraActive(true); }} className="w-full py-4 bg-slate-100 text-slate-500 rounded-[20px] font-black uppercase text-[10px] tracking-widest">Tomar otra foto</button>}
           </div>
+          
+          {/* Alerta de Diagnóstico para Tablets */}
+          {!cameraActive && !photo && !window.isSecureContext && (
+             <div className="mt-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-4 animate-in slide-in-from-top-2">
+                <AlertTriangle className="text-rose-500 shrink-0" size={20}/>
+                <div className="space-y-1">
+                   <p className="text-[10px] font-black text-rose-800 uppercase leading-none">Conexión No Segura</p>
+                   <p className="text-[9px] font-medium text-rose-600 leading-tight">La cámara está bloqueada porque no estás usando HTTPS. Contacta a soporte para actualizar el enlace.</p>
+                </div>
+             </div>
+          )}
         </div>
         <div className="space-y-6 flex flex-col">
           <div className="bg-white rounded-[32px] p-8 border shadow-sm">
