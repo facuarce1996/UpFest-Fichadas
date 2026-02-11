@@ -902,41 +902,45 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         </div>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-[32px] md:rounded-[40px] p-8 border shadow-xl flex flex-col">
+        <div className="bg-white rounded-[32px] md:rounded-[40px] p-8 border shadow-xl flex flex-col min-h-[500px]">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-black uppercase tracking-tighter">Fichador</h2>
             {deviceLocation && <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{deviceLocation.name}</span>}
           </div>
-          <div className="aspect-square rounded-[32px] overflow-hidden bg-slate-900 mb-6 relative border-4 border-slate-100 shadow-inner">
+          <div className="w-full h-auto aspect-square min-h-[300px] md:min-h-[350px] rounded-[32px] overflow-hidden bg-slate-900 mb-6 relative border-4 border-slate-100 shadow-inner flex items-center justify-center">
              {!cameraActive && !photo && (
-               <button onClick={() => setCameraActive(true)} className="absolute inset-0 text-white font-black uppercase text-xs flex flex-col items-center justify-center gap-4 hover:bg-slate-800 transition-colors px-6 text-center">
-                 <div className="w-16 h-16 rounded-full bg-orange-600 flex items-center justify-center shadow-xl ring-8 ring-orange-50 mb-2"><Camera size={28}/></div>
-                 Activar Cámara
-                 {cameraError && <p className="text-rose-400 text-[8px] mt-4 max-w-[200px] leading-tight">{cameraError}</p>}
+               <button onClick={() => setCameraActive(true)} className="absolute inset-0 w-full h-full text-white font-black uppercase text-xs flex flex-col items-center justify-center gap-6 hover:bg-slate-800 transition-colors px-10 text-center z-20">
+                 <div className="w-24 h-24 rounded-full bg-orange-600 flex items-center justify-center shadow-2xl ring-[12px] ring-orange-50/10 mb-2 active:scale-90 transition-transform"><Camera size={40}/></div>
+                 <span className="tracking-[0.2em] text-sm">Activar Cámara</span>
+                 {cameraError && (
+                   <div className="p-4 bg-rose-500/20 backdrop-blur-md rounded-2xl border border-rose-500/50 mt-4">
+                      <p className="text-rose-200 text-[10px] leading-tight font-bold">{cameraError}</p>
+                   </div>
+                 )}
                </button>
              )}
              {cameraActive && <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />}
              {photo && <img src={photo} className="w-full h-full object-cover" />}
              {loading && (
-               <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center z-10">
+               <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white p-6 text-center z-[30]">
                  <RefreshCw className="animate-spin mb-4" size={32} />
                  <p className="font-black text-[10px] uppercase tracking-widest">{loadingMsg || 'Procesando...'}</p>
                </div>
              )}
           </div>
-          <div className="space-y-3">
-            {cameraActive && <button onClick={capturePhoto} className="w-full py-5 bg-orange-600 text-white rounded-[24px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95">Capturar Foto</button>}
-            {photo && !loading && <button onClick={handleClockAction} className="w-full py-5 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3">Confirmar Fichada <ArrowRight size={20}/></button>}
+          <div className="space-y-3 mt-auto">
+            {cameraActive && <button onClick={capturePhoto} className="w-full py-6 bg-orange-600 text-white rounded-[24px] font-black uppercase tracking-[0.2em] text-xs shadow-xl transition-all active:scale-95">Capturar Foto</button>}
+            {photo && !loading && <button onClick={handleClockAction} className="w-full py-6 bg-slate-900 text-white rounded-[24px] font-black uppercase tracking-[0.2em] text-xs shadow-xl flex items-center justify-center gap-3">Confirmar Fichada <ArrowRight size={20}/></button>}
             {photo && !loading && <button onClick={() => { setPhoto(null); setCameraActive(true); }} className="w-full py-4 bg-slate-100 text-slate-500 rounded-[20px] font-black uppercase text-[10px] tracking-widest">Tomar otra foto</button>}
           </div>
           
           {/* Alerta de Diagnóstico para Tablets */}
           {!cameraActive && !photo && !window.isSecureContext && (
-             <div className="mt-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-4 animate-in slide-in-from-top-2">
-                <AlertTriangle className="text-rose-500 shrink-0" size={20}/>
+             <div className="mt-6 p-6 bg-rose-50 border-2 border-rose-100 rounded-[28px] flex items-start gap-4 animate-in slide-in-from-top-4">
+                <AlertTriangle className="text-rose-500 shrink-0" size={24}/>
                 <div className="space-y-1">
-                   <p className="text-[10px] font-black text-rose-800 uppercase leading-none">Conexión No Segura</p>
-                   <p className="text-[9px] font-medium text-rose-600 leading-tight">La cámara está bloqueada porque no estás usando HTTPS. Contacta a soporte para actualizar el enlace.</p>
+                   <p className="text-[11px] font-black text-rose-800 uppercase leading-none tracking-widest">Conexión No Segura Detectada</p>
+                   <p className="text-[10px] font-medium text-rose-600 leading-relaxed mt-1">La cámara se bloquea en tablets si no usas <strong>HTTPS</strong>. Asegúrate de que la dirección empiece con https:// o contacta a soporte.</p>
                 </div>
              </div>
           )}
