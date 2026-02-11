@@ -284,8 +284,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
               facingMode: 'user', 
-              width: { ideal: 720 }, 
-              height: { ideal: 720 } 
+              width: { ideal: 1024 }, 
+              height: { ideal: 1024 } 
             } 
           });
           if (active && videoRef.current) { 
@@ -378,14 +378,29 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   const capturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
-      const context = canvasRef.current.getContext('2d');
-      if (context) {
-        if (videoRef.current.videoWidth === 0) return;
-        canvasRef.current.width = videoRef.current.videoWidth;
-        canvasRef.current.height = videoRef.current.videoHeight;
-        context.drawImage(videoRef.current, 0, 0);
-        const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
-        if (dataUrl && dataUrl.length > 10) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      
+      if (context && video.videoWidth > 0) {
+        // Aseguramos las dimensiones
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // Limpiamos
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Espejamos el canvas para que la foto coincida con lo que ve el usuario (selfie)
+        context.save();
+        context.scale(-1, 1);
+        context.translate(-canvas.width, 0);
+        
+        // Dibujamos
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        context.restore();
+        
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        if (dataUrl && dataUrl.length > 100) {
           setPhoto(dataUrl);
           setCameraActive(false);
         }
