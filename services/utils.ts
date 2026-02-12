@@ -328,11 +328,11 @@ export const fetchCompanyLogo = async (): Promise<string | null> => {
   return data ? data.value : null;
 };
 
-export const authenticateUser = async (dni: string, password: string): Promise<User | null> => {
-  if (dni === 'admin' && password === 'admin') {
+export const authenticateUser = async (dni: string): Promise<User | null> => {
+  if (dni === 'admin') {
     return { id: 'admin_session', dni: 'admin', legajo: 'ADM-001', password: 'admin', name: 'Administrador UpFest', role: 'Admin', dressCode: 'Libre', referenceImage: null, schedule: [], isActive: true };
   }
-  const { data, error } = await supabase.from('users').select('*').eq('dni', dni).eq('password', password).maybeSingle();
+  const { data, error } = await supabase.from('users').select('*').eq('dni', dni).maybeSingle();
   if (error || !data) return null;
   
   const user = mapUserFromDB(data);

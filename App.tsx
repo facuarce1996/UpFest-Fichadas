@@ -907,13 +907,19 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 relative">
+    <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 relative min-h-full">
       {successAction && (
-        <div className="fixed inset-0 z-[150] bg-slate-50 flex flex-col items-center justify-center animate-in fade-in duration-300">
-           <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-8 animate-bounce"><CheckCircle size={40} className="text-blue-600" /></div>
-           <h2 className="text-4xl font-black uppercase tracking-tighter mb-4 text-slate-800">¡{successAction.type} REGISTRADO!</h2>
-           <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-12">Redirigiendo en {successAction.countdown} segundos...</p>
-           <button onClick={onLogout} className="text-xs font-black uppercase text-slate-300 hover:text-blue-600 tracking-widest transition-colors">Cerrar sesión ahora</button>
+        <div className="fixed inset-0 z-[500] bg-slate-900/95 backdrop-blur-3xl flex flex-col items-center justify-center animate-in fade-in duration-500 p-6 text-center">
+           <div className="w-32 h-32 bg-white/10 rounded-full flex items-center justify-center mb-10 animate-bounce shadow-[0_0_50px_rgba(255,255,255,0.1)] border-4 border-white/20">
+             <CheckCircle size={64} className="text-emerald-400" />
+           </div>
+           <h2 className="text-5xl md:text-7xl font-black uppercase tracking-tighter mb-6 text-white leading-none">
+             ¡{successAction.type} <span className="text-emerald-400">REGISTRADO</span>!
+           </h2>
+           <div className="bg-white/5 border border-white/10 px-8 py-4 rounded-3xl mb-12 backdrop-blur-md">
+             <p className="text-lg md:text-xl font-black text-slate-300 uppercase tracking-[0.3em]">Redirigiendo en {successAction.countdown} segundos...</p>
+           </div>
+           <button onClick={onLogout} className="text-sm font-black uppercase text-slate-400 hover:text-white border-b-2 border-slate-700 hover:border-white transition-all pb-1 tracking-[0.2em]">Cerrar sesión ahora</button>
         </div>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -1532,7 +1538,7 @@ const LocationsDashboard = () => {
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Target size={14} className="text-slate-300"/> Radio: {loc.radiusMeters}m</p>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => { localStorage.setItem('upfest_terminal_location_id', loc.id); setCurrentLocId(loc.id); alert('Sede vinculada'); }} className={`flex-[2] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${currentLocId === loc.id ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-100' : 'bg-slate-900 text-white'}`}>
+                    <button onClick={() => { localStorage.setItem('upfest_terminal_location_id', loc.id); setCurrentLocId(loc.id); alert('Sede vinculada'); }} className={`flex-[2] py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${currentLocId === loc.id ? 'bg-emerald-50 text-white shadow-lg shadow-emerald-100' : 'bg-slate-900 text-white'}`}>
                       {currentLocId === loc.id ? 'VINCULADA' : 'VINCULAR TERMINAL'}
                     </button>
                   </div>
@@ -1678,7 +1684,6 @@ export default function App() {
 
 const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: string | null }) => {
   const [dni, setDni] = useState(''); 
-  const [password, setPassword] = useState(''); 
   const [error, setError] = useState(''); 
   const [loading, setLoading] = useState(false);
   
@@ -1687,9 +1692,9 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
     setLoading(true); 
     setError('');
     try { 
-      const user = await authenticateUser(dni, password); 
+      const user = await authenticateUser(dni); 
       if (user) onLogin(user); 
-      else setError('DNI O CLAVE INCORRECTO'); 
+      else setError('DNI NO ENCONTRADO'); 
     } catch (err: any) { 
       if (err.message === "CUENTA DESACTIVADA") {
         setError("CUENTA DESACTIVADA");
@@ -1710,8 +1715,7 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
           <p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">CONTROL BIOMÉTRICO</p>
         </div>
         <form onSubmit={handleLogin} className="space-y-6 mt-12">
-          <input type="text" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="DNI" />
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="CLAVE" />
+          <input type="text" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="INGRESA TU DNI" required />
           {error && <div className="text-red-500 text-[10px] font-black text-center uppercase animate-pulse">{error}</div>}
           <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-black py-5 rounded-[20px] shadow-xl hover:bg-slate-800 transition-all disabled:opacity-50 text-sm uppercase tracking-widest">
             {loading ? 'CONECTANDO...' : 'INGRESAR'}
