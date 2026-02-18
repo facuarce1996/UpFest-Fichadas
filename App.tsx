@@ -1316,7 +1316,7 @@ const AdminDashboard = () => {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">DNI (Usuario)</label>
-                      <input type="text" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
+                      <input type="text" inputMode="numeric" value={formData.dni || ''} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" required />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Rol / Puesto</label>
@@ -1715,7 +1715,7 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
           <p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">CONTROL BIOMÉTRICO</p>
         </div>
         <form onSubmit={handleLogin} className="space-y-6 mt-12">
-          <input type="text" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="INGRESA TU DNI" required />
+          <input type="text" inputMode="numeric" value={dni} onChange={e => setDni(e.target.value)} className="w-full px-8 py-5 border border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/5 transition-all bg-slate-50/50 text-slate-900" placeholder="INGRESA TU DNI" required />
           {error && <div className="text-red-500 text-[10px] font-black text-center uppercase animate-pulse">{error}</div>}
           <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white font-black py-5 rounded-[20px] shadow-xl hover:bg-slate-800 transition-all disabled:opacity-50 text-sm uppercase tracking-widest">
             {loading ? 'CONECTANDO...' : 'INGRESAR'}
