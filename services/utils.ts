@@ -7,37 +7,42 @@ import { User, Location, LogEntry, WorkSchedule } from '../types';
  */
 export const uploadImage = async (base64: string, bucket: string, path: string): Promise<string> => {
   try {
-    // 1. Limpiar el base64
-    const base64Data = base64.split(',')[1] || base64;
+    // 1. Limpiar el base64 de posibles prefijos
+    const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
     
-    // 2. Convertir a Blob
-    const byteCharacters = atob(base64Data);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    // 2. Convertir a Uint8Array de forma segura
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
     }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+    
+    // 3. Crear el Blob con el tipo MIME correcto
+    const blob = new Blob([bytes], { type: 'image/jpeg' });
 
-    // 3. Subir a Supabase
+    // 4. Subir a Supabase
     const { data, error } = await supabase.storage
       .from(bucket)
       .upload(path, blob, {
-        contentType: 'image/jpeg',
-        upsert: true
+        cacheControl: '3600',
+        upsert: true,
+        contentType: 'image/jpeg'
       });
 
-    if (error) throw error;
+    if (error) {
+      console.error("Error de Supabase Storage:", error);
+      throw new Error(`Error de Storage: ${error.message}`);
+    }
 
-    // 4. Obtener URL Pública
+    // 5. Obtener URL Pública
     const { data: { publicUrl } } = supabase.storage
       .from(bucket)
       .getPublicUrl(path);
 
     return publicUrl;
-  } catch (err) {
-    console.error("Error subiendo imagen:", err);
-    throw new Error("No se pudo subir la foto al servidor.");
+  } catch (err: any) {
+    console.error("Error detallado en uploadImage:", err);
+    throw new Error(err.message || "No se pudo subir la foto al servidor.");
   }
 };
 
@@ -48,7 +53,7 @@ export const getCurrentPosition = (): Promise<GeolocationPosition> => {
     }
     navigator.geolocation.getCurrentPosition(resolve, reject, {
       enableHighAccuracy: true,
-      timeout: 5000,
+      timeout: 8000,
       maximumAge: 0
     });
   });
@@ -99,7 +104,7 @@ export const fetchUsers = async (): Promise<User[]> => {
     dressCode: u.dress_code,
     referenceImage: u.reference_image,
     schedule: u.schedule || [],
-    assigned_locations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
+    assignedLocations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
     isActive: u.is_active
   }));
 };
@@ -141,7 +146,6 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
   return (data || []).map(mapLog);
 };
 
-// Se implementa fetchTodayLogs para corregir error de importación en App.tsx
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -154,7 +158,6 @@ export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
   return (data || []).map(mapLog);
 };
 
-// Se implementa fetchLogsByDateRange para corregir error de importación en App.tsx
 export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogEntry[]> => {
   const { data, error } = await supabase
     .from('logs')
@@ -169,7 +172,6 @@ export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogE
 export const addLog = async (log: LogEntry): Promise<void> => {
   let finalPhotoUrl = log.photoEvidence;
 
-  // Si la evidencia es un Base64 (fichada real), subirla al storage
   if (log.photoEvidence && log.photoEvidence.startsWith('data:image')) {
     const timestamp = new Date().getTime();
     const fileName = `logs/${log.userId}_${timestamp}.jpg`;
@@ -198,7 +200,6 @@ export const addLog = async (log: LogEntry): Promise<void> => {
 export const saveUser = async (user: User): Promise<void> => {
   let finalRefImage = user.referenceImage;
 
-  // Si la imagen de referencia es nueva (Base64), subirla al bucket de usuarios
   if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
     const fileName = `users/${user.dni}_ref_${new Date().getTime()}.jpg`;
     finalRefImage = await uploadImage(user.referenceImage, 'fichadas', fileName);
