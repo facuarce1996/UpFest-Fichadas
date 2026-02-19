@@ -21,10 +21,23 @@ const responseSchema = {
   required: ["identityMatch", "dressCodeMatches", "description"],
 };
 
-// Función auxiliar para limpiar el prefijo de base64
 const cleanBase64 = (base64: string): string => {
   if (!base64) return "";
   return base64.includes(",") ? base64.split(",")[1] : base64;
+};
+
+/**
+ * Procesa la respuesta de texto de Gemini para extraer JSON puro incluso si viene con Markdown.
+ */
+const parseGeminiResponse = (text: string) => {
+  try {
+    // Eliminar posibles bloques de código Markdown
+    const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanText);
+  } catch (e) {
+    console.error("Error al parsear JSON de Gemini:", text);
+    throw new Error("Respuesta de IA malformada");
+  }
 };
 
 export const analyzeCheckIn = async (
@@ -32,17 +45,18 @@ export const analyzeCheckIn = async (
   dressCode: string,
   referencePhotoBase64: string | null
 ): Promise<ValidationResult> => {
-  // CRITICAL: Initialize inside the function to capture the latest process.env.API_KEY
+  // Inicialización inmediata para usar la API_KEY del entorno actual
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     const parts: any[] = [
-      { text: `Actúa como un inspector de recursos humanos de UpFest.
-        Misión:
-        1. Compara la foto actual con la de referencia (si existe).
-        2. Verifica si el empleado cumple con el código de vestimenta: ${dressCode}.
-        Regla de oro de UpFest: Buscamos específicamente una remera o prenda superior de color NARANJA.
-        Responde siempre en español de forma profesional y breve.` },
+      { text: `Actúa como un experto en seguridad y RRHH de UpFest.
+        TAREAS:
+        1. Compara las fotos para confirmar identidad.
+        2. Verifica vestimenta: ${dressCode}. BUSCAMOS COLOR NARANJA.
+        
+        IMPORTANTE: Si no puedes confirmar la identidad por falta de claridad, prioriza la vestimenta naranja.
+        Respuesta técnica en JSON, idioma español.` },
       { 
         inlineData: { 
           mimeType: "image/jpeg", 
@@ -69,26 +83,42 @@ export const analyzeCheckIn = async (
       },
     });
 
-    const text = response.text || "{}";
-    const result = JSON.parse(text);
+    // Validar si la respuesta fue bloqueada por seguridad
+    if (!response.text) {
+      return {
+        identityMatch: false,
+        dressCodeMatches: false,
+        description: "El análisis fue omitido por filtros de seguridad de la IA (rostro no claro)."
+      };
+    }
+
+    const result = parseGeminiResponse(response.text);
     
     return {
-      identityMatch: result.identityMatch ?? true, // Default to true if reference is missing
+      identityMatch: result.identityMatch ?? true,
       dressCodeMatches: result.dressCodeMatches ?? false,
-      description: result.description ?? "Análisis completado."
+      description: result.description ?? "Análisis visual completado."
     };
   } catch (error: any) {
-    console.error("Gemini validation error:", error);
+    console.error("Gemini Critical Error:", error);
     
-    // Si el error es de autenticación, lanzamos el error para que App.tsx lo capture y pida la llave
-    if (error.message?.includes("API key") || error.message?.includes("403") || error.message?.includes("401")) {
+    const errMsg = error.message || "";
+    
+    // Si es error de credenciales o cuota, relanzamos para que la App abra el selector de llaves
+    if (
+      errMsg.includes("API key") || 
+      errMsg.includes("403") || 
+      errMsg.includes("401") || 
+      errMsg.includes("429") ||
+      errMsg.includes("not found")
+    ) {
       throw error; 
     }
 
     return {
       identityMatch: false,
       dressCodeMatches: false,
-      description: "Error de conexión con la IA. Reintente en unos instantes."
+      description: "Error técnico en el procesamiento de imagen. Reintente."
     };
   }
 };
