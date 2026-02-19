@@ -48,7 +48,7 @@ export const isWithinSchedule = (schedule: WorkSchedule[]): boolean => {
 };
 
 export const fetchUsers = async (): Promise<User[]> => {
-  const { data, error } = await supabase.from('users').select('*');
+  const { data, error } = await supabase.from('users').select('*').order('name');
   if (error) throw error;
   return (data || []).map(u => ({
     id: u.id,
@@ -60,13 +60,13 @@ export const fetchUsers = async (): Promise<User[]> => {
     dressCode: u.dress_code,
     referenceImage: u.reference_image,
     schedule: u.schedule || [],
-    assignedLocations: u.assigned_locations || [],
+    assignedLocations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
     isActive: u.is_active
   }));
 };
 
 export const fetchLocations = async (): Promise<Location[]> => {
-  const { data, error } = await supabase.from('locations').select('*');
+  const { data, error } = await supabase.from('locations').select('*').order('name');
   if (error) throw error;
   return (data || []).map(l => ({
     id: l.id,
@@ -121,10 +121,11 @@ export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogE
 
 export const addLog = async (log: LogEntry): Promise<void> => {
   const { error } = await supabase.from('logs').insert([{
+    id: crypto.randomUUID(), // Generamos ID en el cliente
     user_id: log.userId,
     user_name: log.userName,
     legajo: log.legajo,
-    timestamp: log.timestamp,
+    timestamp: log.timestamp || new Date().toISOString(),
     type: log.type,
     location_id: log.locationId,
     location_name: log.locationName,
@@ -149,13 +150,16 @@ export const saveUser = async (user: User): Promise<void> => {
     reference_image: user.referenceImage,
     schedule: user.schedule,
     assigned_locations: user.assignedLocations,
-    is_active: user.isActive
+    is_active: user.isActive ?? true
   };
-  if (user.id) {
+  
+  if (user.id && user.id.length > 0) {
     const { error } = await supabase.from('users').update(payload).eq('id', user.id);
     if (error) throw error;
   } else {
-    const { error } = await supabase.from('users').insert([payload]);
+    // Si no hay ID, generamos uno nuevo aquí para evitar el error de null constraint
+    const newId = crypto.randomUUID();
+    const { error } = await supabase.from('users').insert([{ ...payload, id: newId }]);
     if (error) throw error;
   }
 };
@@ -179,7 +183,7 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
     dressCode: data.dress_code,
     referenceImage: data.reference_image,
     schedule: data.schedule || [],
-    assignedLocations: data.assigned_locations || [],
+    assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
     isActive: data.is_active
   };
 };
@@ -193,11 +197,11 @@ export const saveLocation = async (loc: Location): Promise<void> => {
     lng: loc.lng,
     radius_meters: loc.radiusMeters
   };
-  if (loc.id) {
+  if (loc.id && loc.id.length > 0) {
     const { error } = await supabase.from('locations').update(payload).eq('id', loc.id);
     if (error) throw error;
   } else {
-    const { error } = await supabase.from('locations').insert([payload]);
+    const { error } = await supabase.from('locations').insert([{ ...payload, id: crypto.randomUUID() }]);
     if (error) throw error;
   }
 };
@@ -208,13 +212,13 @@ export const deleteLocation = async (id: string): Promise<void> => {
 };
 
 export const fetchCompanyLogo = async (): Promise<string | null> => {
-  const { data, error } = await supabase.from('settings').select('value').eq('key', 'company_logo').single();
+  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'company_logo').maybeSingle();
   if (error) return null;
   return data?.value || null;
 };
 
 export const saveCompanyLogo = async (logoUrl: string): Promise<void> => {
-  const { error } = await supabase.from('settings').upsert({ key: 'company_logo', value: logoUrl });
+  const { error } = await supabase.from('app_settings').upsert({ key: 'company_logo', value: logoUrl });
   if (error) throw error;
 };
 
