@@ -2,6 +2,45 @@
 import { supabase } from './supabaseClient';
 import { User, Location, LogEntry, WorkSchedule } from '../types';
 
+/**
+ * Sube una imagen Base64 al storage de Supabase y devuelve la URL pública.
+ */
+export const uploadImage = async (base64: string, bucket: string, path: string): Promise<string> => {
+  try {
+    // 1. Limpiar el base64
+    const base64Data = base64.split(',')[1] || base64;
+    
+    // 2. Convertir a Blob
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/jpeg' });
+
+    // 3. Subir a Supabase
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(path, blob, {
+        contentType: 'image/jpeg',
+        upsert: true
+      });
+
+    if (error) throw error;
+
+    // 4. Obtener URL Pública
+    const { data: { publicUrl } } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(path);
+
+    return publicUrl;
+  } catch (err) {
+    console.error("Error subiendo imagen:", err);
+    throw new Error("No se pudo subir la foto al servidor.");
+  }
+};
+
 export const getCurrentPosition = (): Promise<GeolocationPosition> => {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -16,7 +55,7 @@ export const getCurrentPosition = (): Promise<GeolocationPosition> => {
 };
 
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371e3; // metres
+  const R = 6371e3; 
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -27,7 +66,7 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
           Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-  return R * c; // in metres
+  return R * c; 
 };
 
 export const isWithinSchedule = (schedule: WorkSchedule[]): boolean => {
@@ -60,7 +99,7 @@ export const fetchUsers = async (): Promise<User[]> => {
     dressCode: u.dress_code,
     referenceImage: u.reference_image,
     schedule: u.schedule || [],
-    assignedLocations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
+    assigned_locations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
     isActive: u.is_active
   }));
 };
@@ -102,16 +141,24 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
   return (data || []).map(mapLog);
 };
 
+// Se implementa fetchTodayLogs para corregir error de importación en App.tsx
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const { data, error } = await supabase.from('logs').select('*').gte('timestamp', start.toISOString()).order('timestamp', { ascending: false });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const { data, error } = await supabase
+    .from('logs')
+    .select('*')
+    .gte('timestamp', today.toISOString())
+    .order('timestamp', { ascending: false });
   if (error) throw error;
   return (data || []).map(mapLog);
 };
 
+// Se implementa fetchLogsByDateRange para corregir error de importación en App.tsx
 export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogEntry[]> => {
-  const { data, error } = await supabase.from('logs').select('*')
+  const { data, error } = await supabase
+    .from('logs')
+    .select('*')
     .gte('timestamp', start.toISOString())
     .lte('timestamp', end.toISOString())
     .order('timestamp', { ascending: false });
@@ -120,8 +167,17 @@ export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogE
 };
 
 export const addLog = async (log: LogEntry): Promise<void> => {
+  let finalPhotoUrl = log.photoEvidence;
+
+  // Si la evidencia es un Base64 (fichada real), subirla al storage
+  if (log.photoEvidence && log.photoEvidence.startsWith('data:image')) {
+    const timestamp = new Date().getTime();
+    const fileName = `logs/${log.userId}_${timestamp}.jpg`;
+    finalPhotoUrl = await uploadImage(log.photoEvidence, 'fichadas', fileName);
+  }
+
   const { error } = await supabase.from('logs').insert([{
-    id: crypto.randomUUID(), // Generamos ID en el cliente
+    id: crypto.randomUUID(),
     user_id: log.userId,
     user_name: log.userName,
     legajo: log.legajo,
@@ -133,13 +189,21 @@ export const addLog = async (log: LogEntry): Promise<void> => {
     dress_code_status: log.dressCodeStatus,
     identity_status: log.identityStatus,
     schedule_status: log.scheduleStatus,
-    photo_evidence: log.photoEvidence,
+    photo_evidence: finalPhotoUrl,
     ai_feedback: log.aiFeedback
   }]);
   if (error) throw error;
 };
 
 export const saveUser = async (user: User): Promise<void> => {
+  let finalRefImage = user.referenceImage;
+
+  // Si la imagen de referencia es nueva (Base64), subirla al bucket de usuarios
+  if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
+    const fileName = `users/${user.dni}_ref_${new Date().getTime()}.jpg`;
+    finalRefImage = await uploadImage(user.referenceImage, 'fichadas', fileName);
+  }
+
   const payload = {
     dni: user.dni,
     name: user.name,
@@ -147,7 +211,7 @@ export const saveUser = async (user: User): Promise<void> => {
     legajo: user.legajo,
     password: user.password,
     dress_code: user.dressCode,
-    reference_image: user.referenceImage,
+    reference_image: finalRefImage,
     schedule: user.schedule,
     assigned_locations: user.assignedLocations,
     is_active: user.isActive ?? true
@@ -157,7 +221,6 @@ export const saveUser = async (user: User): Promise<void> => {
     const { error } = await supabase.from('users').update(payload).eq('id', user.id);
     if (error) throw error;
   } else {
-    // Si no hay ID, generamos uno nuevo aquí para evitar el error de null constraint
     const newId = crypto.randomUUID();
     const { error } = await supabase.from('users').insert([{ ...payload, id: newId }]);
     if (error) throw error;

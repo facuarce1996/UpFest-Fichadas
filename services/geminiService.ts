@@ -21,6 +21,29 @@ const responseSchema = {
   required: ["identityMatch", "dressCodeMatches", "description"],
 };
 
+/**
+ * Convierte una URL de imagen a una cadena Base64
+ */
+const imageUrlToBase64 = async (url: string): Promise<string> => {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        // Retornar solo la parte de datos, sin el prefijo data:image/jpeg;base64,
+        resolve(base64String.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error("Error convirtiendo URL a Base64:", error);
+    return "";
+  }
+};
+
 const cleanBase64 = (base64: string): string => {
   if (!base64) return "";
   const parts = base64.split(",");
@@ -29,16 +52,16 @@ const cleanBase64 = (base64: string): string => {
 
 /**
  * Analiza la fichada del empleado.
- * NOTA: No capturamos errores aquí para permitir que App.tsx detecte fallos de API KEY
- * y abra el selector de llaves automáticamente.
  */
 export const analyzeCheckIn = async (
   currentPhotoBase64: string,
   dressCode: string,
   referencePhotoBase64: string | null
 ): Promise<ValidationResult> => {
-  // Inicialización con la API_KEY actual del proceso
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  // Preparar la foto actual (ya viene en Base64 desde la cámara)
+  const currentPhotoData = cleanBase64(currentPhotoBase64);
 
   const parts: any[] = [
     { text: `Actúa como un monitor de RRHH para UpFest. 
@@ -50,21 +73,32 @@ export const analyzeCheckIn = async (
     { 
       inlineData: { 
         mimeType: "image/jpeg", 
-        data: cleanBase64(currentPhotoBase64) 
+        data: currentPhotoData
       } 
     }
   ];
 
-  if (referencePhotoBase64 && referencePhotoBase64.length > 100) {
-    parts.push({ 
-      inlineData: { 
-        mimeType: "image/jpeg", 
-        data: cleanBase64(referencePhotoBase64) 
-      } 
-    });
+  // Si hay foto de referencia, verificar si es URL o Base64
+  if (referencePhotoBase64 && referencePhotoBase64.length > 10) {
+    let refData = "";
+    if (referencePhotoBase64.startsWith('http')) {
+      // Es una URL de Supabase, hay que descargarla
+      refData = await imageUrlToBase64(referencePhotoBase64);
+    } else {
+      // Es Base64 directo
+      refData = cleanBase64(referencePhotoBase64);
+    }
+
+    if (refData) {
+      parts.push({ 
+        inlineData: { 
+          mimeType: "image/jpeg", 
+          data: refData
+        } 
+      });
+    }
   }
 
-  // Si este llamado falla (por API Key inválida o cuota), el error subirá a App.tsx
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: { parts },
@@ -76,7 +110,7 @@ export const analyzeCheckIn = async (
 
   const text = response.text;
   if (!text) {
-    throw new Error("La IA no devolvió una respuesta válida (posible bloqueo de seguridad).");
+    throw new Error("La IA no devolvió una respuesta válida.");
   }
 
   try {
