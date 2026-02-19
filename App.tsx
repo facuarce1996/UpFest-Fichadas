@@ -559,11 +559,11 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   <div className="grid grid-cols-2 gap-4">
                     <div className={`space-y-2 ${manualLogData.type === 'CHECK_OUT' ? 'opacity-30 pointer-events-none' : ''}`}>
                       <label className="text-[10px] font-black uppercase text-slate-400">Hora Ingreso</label>
-                      <input type="time" value={manualLogData.checkInTime} onChange={e => setManualLogData({...manualLogData, checkInTime: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" />
+                      <input type="time" value={manualLogData.checkInTime} onChange={e => setManualLogData({...manualLogData, checkInTime: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-xs outline-none" />
                     </div>
                     <div className={`space-y-2 ${manualLogData.type === 'CHECK_IN' ? 'opacity-30 pointer-events-none' : ''}`}>
                       <label className="text-[10px] font-black uppercase text-slate-400">Hora Egreso</label>
-                      <input type="time" value={manualLogData.checkOutTime} onChange={e => setManualLogData({...manualLogData, checkOutTime: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" />
+                      <input type="time" value={manualLogData.checkOutTime} onChange={e => setManualLogData({...manualLogData, checkOutTime: e.target.value})} className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-xs outline-none" />
                     </div>
                   </div>
                   <div className="pt-4 flex gap-4">
@@ -583,7 +583,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 <div className="p-8 md:p-12 border-b flex items-center justify-between gap-6 bg-white relative">
                    <div className="flex items-center gap-6">
                       <div className="w-16 h-16 bg-rose-50 rounded-[24px] flex items-center justify-center text-rose-600 shadow-inner">
-                        <Bell className="animate-ring" size={32}/>
+                        <Bell size={32}/>
                       </div>
                       <div>
                         <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">
@@ -618,12 +618,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       <div className="flex-1 grid grid-cols-2 gap-4">
                         <div className="space-y-1">
                           <label className="text-[8px] font-black uppercase text-slate-400">Desde</label>
-                          {/* FIX: Passed e.target.value to state setter instead of dispatcher directly */}
                           <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-rose-500" />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[8px] font-black uppercase text-slate-400">Hasta</label>
-                          {/* FIX: Passed e.target.value to state setter instead of dispatcher directly */}
                           <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-rose-500" />
                         </div>
                       </div>
@@ -1110,7 +1108,7 @@ const AdminDashboard = () => {
             name: String(row['Nombre'] || ''),
             dni: String(row['DNI'] || ''),
             legajo: String(row['Legajo'] || ''),
-            role: String(row['Rol'] || 'Mozo'),
+            role: (row['Rol'] as Role) || 'Mozo',
             password: String(row['Contraseña'] || '1234'),
             dressCode: String(row['Codigo Vestimenta'] || ''),
             schedule: schedule,
@@ -1329,7 +1327,7 @@ const AdminDashboard = () => {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Rol / Puesto</label>
-                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm border border-transparent focus:border-slate-200">
+                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value as Role})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm border border-transparent focus:border-slate-200">
                         {DEFAULT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                       </select>
                     </div>
