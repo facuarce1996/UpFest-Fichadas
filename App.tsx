@@ -33,7 +33,14 @@ const handleOpenApiKeyDialog = async () => {
 
 const getFormattedDate = (dateStr: string) => {
   try {
+    if (!dateStr) return '---';
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+      // Intento de parseo manual si viene en formato YYYY-MM-DD HH:mm:ss o similar
+      const parts = dateStr.split(' ');
+      if (parts.length > 0) return parts[0].split('-').reverse().join('/');
+      return 'Fecha inválida';
+    }
     return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   } catch (e) {
     return 'Fecha inválida';
@@ -127,7 +134,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setLocations(allLocs);
       setAllUsers(users);
       if (user.role === 'Admin') setAdminLogs(logs);
-      setUserTodayLogs(logs.filter(l => l.userId === user.id && new Date(l.timestamp).toDateString() === new Date().toDateString()));
+      
+      const todayStr = new Date().toDateString();
+      setUserTodayLogs(logs.filter(l => l.userId === user.id && new Date(l.timestamp).toDateString() === todayStr));
+      
       if (deviceLocId) setDeviceLocation(allLocs.find(l => l.id === deviceLocId) || null);
     } catch (err) {
       console.error("Error al cargar datos del monitor:", err);
@@ -383,19 +393,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const context = canvas.getContext('2d', { willReadFrequently: true });
       
       if (context && video.videoWidth > 0) {
-        // Aseguramos las dimensiones
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        
-        // Limpiamos
         context.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Espejamos el canvas para que la foto coincida con lo que ve el usuario (selfie)
         context.save();
         context.scale(-1, 1);
         context.translate(-canvas.width, 0);
-        
-        // Dibujamos
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         context.restore();
         
@@ -615,11 +618,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       <div className="flex-1 grid grid-cols-2 gap-4">
                         <div className="space-y-1">
                           <label className="text-[8px] font-black uppercase text-slate-400">Desde</label>
-                          <input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-rose-500" />
+                          {/* FIX: Passed e.target.value to state setter instead of dispatcher directly */}
+                          <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-rose-500" />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[8px] font-black uppercase text-slate-400">Hasta</label>
-                          <input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-rose-500" />
+                          {/* FIX: Passed e.target.value to state setter instead of dispatcher directly */}
+                          <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className="w-full bg-white border border-slate-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-rose-500" />
                         </div>
                       </div>
                       <button onClick={handleApplyFilter} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-slate-800 transition-all shadow-lg">
@@ -643,8 +648,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                      <div className="grid grid-cols-1 gap-6">
                         {incidentLogs.map(log => (
                           <div key={log.id} className="bg-white border-2 border-slate-100 rounded-[40px] p-6 md:p-10 flex flex-col md:flex-row gap-10 items-start md:items-center shadow-sm hover:shadow-2xl hover:border-rose-100 transition-all group animate-in slide-in-from-bottom-4">
-                              <div onClick={() => setZoomedImage(log.photoEvidence)} className="w-40 h-40 md:w-56 md:h-56 shrink-0 bg-slate-900 rounded-[32px] overflow-hidden border-8 border-slate-50 cursor-zoom-in relative group/img shadow-2xl">
-                                <img src={log.photoEvidence} className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-700" />
+                              <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-40 h-40 md:w-56 md:h-56 shrink-0 bg-slate-900 rounded-[32px] overflow-hidden border-8 border-slate-50 cursor-zoom-in relative group/img shadow-2xl">
+                                {log.photoEvidence ? (
+                                  <img src={log.photoEvidence} className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-700" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-slate-500"><UserIcon size={48}/></div>
+                                )}
                                 <div className="absolute inset-0 bg-rose-600/40 opacity-0 group-hover/img:opacity-100 flex items-center justify-center text-white transition-opacity backdrop-blur-sm">
                                   <Maximize2 size={32}/>
                                 </div>
@@ -656,7 +665,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                       <span className="px-4 py-1.5 bg-slate-100 text-slate-500 text-[10px] font-black uppercase rounded-lg border border-slate-200">Lgj: {log.legajo}</span>
                                     </div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                      <Building size={14}/> Sede: {log.locationName} <span className="text-slate-200">|</span> <Clock size={14}/> {new Date(log.timestamp).toLocaleString('es-AR')}
+                                      <Building size={14}/> Sede: {log.locationName} <span className="text-slate-200">|</span> <Clock size={14}/> {getFormattedDate(log.timestamp)}
                                     </p>
                                 </div>
                                 <div className="flex flex-wrap gap-3">
@@ -679,7 +688,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                 </div>
                               </div>
                               <div className="w-full md:w-auto flex md:flex-col gap-2">
-                                 <button onClick={() => setZoomedImage(log.photoEvidence)} className="flex-1 p-5 bg-slate-50 text-slate-400 rounded-3xl hover:bg-slate-900 hover:text-white transition-all shadow-sm">
+                                 <button onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="flex-1 p-5 bg-slate-50 text-slate-400 rounded-3xl hover:bg-slate-900 hover:text-white transition-all shadow-sm">
                                     <Eye size={24} className="mx-auto"/>
                                  </button>
                                  <button onClick={() => handleDeleteLog(log.id)} className="flex-1 p-5 bg-rose-50 text-rose-400 rounded-3xl hover:bg-rose-600 hover:text-white transition-all shadow-sm">
@@ -1291,7 +1300,7 @@ const AdminDashboard = () => {
             <button type="button" onClick={() => { setEditingUser(null); setIsCreating(false); }} className="absolute top-6 right-6 md:top-8 md:right-8 p-3 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 transition-colors z-10"><X size={20}/></button>
             <form onSubmit={handleSaveUser} className="p-6 md:p-12 space-y-8 md:space-y-12">
               <div className="border-b pb-6">
-                  <h3 className="font-black text-3xl md:text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h3>
+                  <h2 className="font-black text-3xl md:text-4xl text-slate-900 uppercase tracking-tighter leading-none">{editingUser ? 'EDITAR FICHA' : 'NUEVO COLABORADOR'}</h2>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 italic">SISTEMA RRHH - UPFEST</p>
               </div>
 
@@ -1562,7 +1571,9 @@ const LocationsDashboard = () => {
                   
                   <form onSubmit={handleSaveLoc} className="p-10 space-y-8">
                     <div className="border-b pb-6">
-                      <h3 className="font-black text-3xl text-slate-900 uppercase tracking-tighter">{editingLoc ? 'EDITAR SEDE' : 'NUEVA SEDE'}</h3>
+                      <h3 className="font-black text-2xl uppercase tracking-tighter text-slate-900">
+                        {editingLoc ? 'EDITAR SEDE' : 'NUEVA SEDE'}
+                      </h3>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
