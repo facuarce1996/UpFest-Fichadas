@@ -1,9 +1,17 @@
 
--- UPFEST CONTROL - DATABASE SCHEMA (v4.1 - Flexible IDs)
+-- UPFEST CONTROL - REINICIO DE ESQUEMA PROFESIONAL (v4.2)
 
--- 1. Usuarios y Personal
+-- 1. LIMPIEZA TOTAL (Borra tablas si existen para evitar errores de duplicado)
+DROP TABLE IF EXISTS public.logs CASCADE;
+DROP TABLE IF EXISTS public.users CASCADE;
+DROP TABLE IF EXISTS public.locations CASCADE;
+DROP TABLE IF EXISTS public.app_settings CASCADE;
+
+-- 2. CREACIÓN DE TABLAS CON TIPOS FLEXIBLES (TEXT)
+
+-- Tabla de Usuarios
 CREATE TABLE public.users (
-  id TEXT PRIMARY KEY, -- Cambiado a TEXT para máxima flexibilidad
+  id TEXT PRIMARY KEY, 
   dni TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   name TEXT NOT NULL,
@@ -12,14 +20,14 @@ CREATE TABLE public.users (
   dress_code TEXT DEFAULT 'Remera naranja de la empresa',
   reference_image TEXT, 
   schedule JSONB DEFAULT '[]', 
-  assigned_locations JSONB DEFAULT '[]', -- Cambiado a JSONB para evitar errores de casteo de UUID[]
+  assigned_locations JSONB DEFAULT '[]',
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Sedes de Eventos
+-- Tabla de Sedes
 CREATE TABLE public.locations (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   address TEXT NOT NULL,
   city TEXT DEFAULT 'CABA',
@@ -29,9 +37,9 @@ CREATE TABLE public.locations (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Registros de Fichadas
+-- Tabla de Fichadas
 CREATE TABLE public.logs (
-  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  id TEXT PRIMARY KEY,
   user_id TEXT,
   user_name TEXT,
   legajo TEXT,
@@ -48,18 +56,24 @@ CREATE TABLE public.logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. Configuraciones de la App
+-- Tabla de Configuraciones
 CREATE TABLE public.app_settings (
   key TEXT PRIMARY KEY,
   value TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- RLS (Row Level Security) - Deshabilitado para prototipo
+-- 3. SEGURIDAD Y PERMISOS
 ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.locations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings DISABLE ROW LEVEL SECURITY;
 
--- Notificar a PostgREST para recargar el esquema
+-- 4. INSERTAR USUARIO ADMINISTRADOR INICIAL (Opcional, para entrar directo)
+-- DNI: 1234, Pass: 1234
+INSERT INTO public.users (id, dni, password, name, role, is_active)
+VALUES ('admin-001', '1234', '1234', 'ADMINISTRADOR UPFEST', 'Admin', true)
+ON CONFLICT (dni) DO NOTHING;
+
+-- Notificar recarga de esquema
 NOTIFY pgrst, 'reload schema';
