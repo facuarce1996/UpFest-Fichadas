@@ -23,103 +23,72 @@ const responseSchema = {
 
 const cleanBase64 = (base64: string): string => {
   if (!base64) return "";
-  return base64.includes(",") ? base64.split(",")[1] : base64;
+  const parts = base64.split(",");
+  return parts.length > 1 ? parts[1] : parts[0];
 };
 
 /**
- * Procesa la respuesta de texto de Gemini para extraer JSON puro incluso si viene con Markdown.
+ * Analiza la fichada del empleado.
+ * NOTA: No capturamos errores aquí para permitir que App.tsx detecte fallos de API KEY
+ * y abra el selector de llaves automáticamente.
  */
-const parseGeminiResponse = (text: string) => {
-  try {
-    // Eliminar posibles bloques de código Markdown
-    const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanText);
-  } catch (e) {
-    console.error("Error al parsear JSON de Gemini:", text);
-    throw new Error("Respuesta de IA malformada");
-  }
-};
-
 export const analyzeCheckIn = async (
   currentPhotoBase64: string,
   dressCode: string,
   referencePhotoBase64: string | null
 ): Promise<ValidationResult> => {
-  // Inicialización inmediata para usar la API_KEY del entorno actual
+  // Inicialización con la API_KEY actual del proceso
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-  try {
-    const parts: any[] = [
-      { text: `Actúa como un experto en seguridad y RRHH de UpFest.
-        TAREAS:
-        1. Compara las fotos para confirmar identidad.
-        2. Verifica vestimenta: ${dressCode}. BUSCAMOS COLOR NARANJA.
-        
-        IMPORTANTE: Si no puedes confirmar la identidad por falta de claridad, prioriza la vestimenta naranja.
-        Respuesta técnica en JSON, idioma español.` },
-      { 
-        inlineData: { 
-          mimeType: "image/jpeg", 
-          data: cleanBase64(currentPhotoBase64) 
-        } 
-      }
-    ];
-
-    if (referencePhotoBase64 && referencePhotoBase64.length > 100) {
-      parts.push({ 
-        inlineData: { 
-          mimeType: "image/jpeg", 
-          data: cleanBase64(referencePhotoBase64) 
-        } 
-      });
+  const parts: any[] = [
+    { text: `Actúa como un monitor de RRHH para UpFest. 
+      Analiza la imagen actual y compárala con la de referencia si existe.
+      REGLA CRÍTICA DE VESTIMENTA: El empleado DEBE vestir una prenda superior de color NARANJA.
+      Si no es naranja, dressCodeMatches debe ser false.
+      Instrucción de vestimenta del perfil: ${dressCode}.
+      Responde estrictamente en formato JSON.` },
+    { 
+      inlineData: { 
+        mimeType: "image/jpeg", 
+        data: cleanBase64(currentPhotoBase64) 
+      } 
     }
+  ];
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: { parts },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
+  if (referencePhotoBase64 && referencePhotoBase64.length > 100) {
+    parts.push({ 
+      inlineData: { 
+        mimeType: "image/jpeg", 
+        data: cleanBase64(referencePhotoBase64) 
+      } 
     });
+  }
 
-    // Validar si la respuesta fue bloqueada por seguridad
-    if (!response.text) {
-      return {
-        identityMatch: false,
-        dressCodeMatches: false,
-        description: "El análisis fue omitido por filtros de seguridad de la IA (rostro no claro)."
-      };
-    }
+  // Si este llamado falla (por API Key inválida o cuota), el error subirá a App.tsx
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: { parts },
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: responseSchema,
+    },
+  });
 
-    const result = parseGeminiResponse(response.text);
-    
+  const text = response.text;
+  if (!text) {
+    throw new Error("La IA no devolvió una respuesta válida (posible bloqueo de seguridad).");
+  }
+
+  try {
+    const result = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
     return {
       identityMatch: result.identityMatch ?? true,
       dressCodeMatches: result.dressCodeMatches ?? false,
-      description: result.description ?? "Análisis visual completado."
+      description: result.description ?? "Validación completada."
     };
-  } catch (error: any) {
-    console.error("Gemini Critical Error:", error);
-    
-    const errMsg = error.message || "";
-    
-    // Si es error de credenciales o cuota, relanzamos para que la App abra el selector de llaves
-    if (
-      errMsg.includes("API key") || 
-      errMsg.includes("403") || 
-      errMsg.includes("401") || 
-      errMsg.includes("429") ||
-      errMsg.includes("not found")
-    ) {
-      throw error; 
-    }
-
-    return {
-      identityMatch: false,
-      dressCodeMatches: false,
-      description: "Error técnico en el procesamiento de imagen. Reintente."
-    };
+  } catch (e) {
+    console.error("Error parseando respuesta de Gemini:", text);
+    throw new Error("Error en el formato de respuesta de la IA.");
   }
 };
 
