@@ -467,7 +467,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const updatedLog = {
         ...editingLog,
         // Aseguramos que el timestamp se actualice con la fecha y hora del formulario
-        timestamp: new Date(`${editingLog.timestamp.split('T')[0]}T${editingLog.timestamp.split('T')[1].substring(0,5)}:00`).toISOString(),
+        timestamp: new Date(editingLog.timestamp).toISOString(),
       };
       await updateLog(updatedLog);
 
@@ -892,7 +892,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                       <span className="px-4 py-1.5 bg-slate-100 text-slate-500 text-[10px] font-black uppercase rounded-lg">Lgj: {log.legajo}</span>
                                     </div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                      <Building size={14}/> Sede: {log.locationName} <span className="text-slate-200">|</span> <Clock size={14}/> In: {new Date(log.timestamp).toLocaleString('es-AR')}
+                                      <Building size={14}/> Sede: {log.locationName} <span className="text-slate-200">|</span> <Clock size={14}/> In: {new Date(log.timestamp).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-3 px-5 py-2.5 bg-orange-600 text-white rounded-2xl shadow-lg w-fit">
@@ -1011,7 +1011,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                           <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Lgj: {log.legajo} | {log.locationName}</span>
                         </td>
                         <td className="p-6 text-center">
-                            <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase bg-slate-100 px-3 py-1 rounded-lg">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase bg-slate-100 px-3 py-1 rounded-lg">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}</span>
                             <span className="block text-[9px] text-slate-400 uppercase font-black mt-1.5">{getFormattedDate(log.timestamp)}</span>
                         </td>
                         <td className="p-6 text-center">
