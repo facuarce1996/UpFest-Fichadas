@@ -89,8 +89,15 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     locationId: ''
   });
   const [isSavingManual, setIsSavingManual] = useState(false);
+  const [showEditLogModal, setShowEditLogModal] = useState(false);
+  const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
   
   const [successAction, setSuccessAction] = useState<{ type: string, countdown: number } | null>(null);
+
+  const handleEditLog = (log: LogEntry) => {
+    setEditingLog(log);
+    setShowEditLogModal(true);
+  };
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -418,6 +425,31 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     catch (e: any) { alert(e.message); } finally { setIsDeleting(null); }
   };
 
+  const handleSaveEditedLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLog) return;
+
+    setIsSavingManual(true); // Reutilizamos este estado para indicar que se está guardando
+    try {
+      const updatedLog = {
+        ...editingLog,
+        // Aseguramos que el timestamp se actualice con la fecha y hora del formulario
+        timestamp: new Date(`${editingLog.timestamp.split('T')[0]}T${editingLog.timestamp.split('T')[1].substring(0,5)}:00`).toISOString(),
+      };
+      await updateLog(updatedLog);
+
+      alert('Fichada actualizada con éxito.');
+      setShowEditLogModal(false);
+      setEditingLog(null);
+      loadData();
+    } catch (error) {
+      console.error('Error al actualizar fichada:', error);
+      alert('Error al actualizar fichada.');
+    } finally {
+      setIsSavingManual(false);
+    }
+  };
+
   const handleSaveManualLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualLogData.userId || !manualLogData.locationId) return alert("Selecciona colaborador y sede.");
@@ -579,6 +611,72 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </div>
         )}
 
+        {showEditLogModal && editingLog && (
+          <div className="fixed inset-0 z-[300] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl overflow-visible animate-in zoom-in-95 duration-300">
+               <div className="p-8 border-b flex items-center justify-between">
+                  <h3 className="text-2xl font-black uppercase tracking-tighter">Editar Fichada</h3>
+                  <button onClick={() => { setShowEditLogModal(false); setEditingLog(null); }} className="p-2 text-slate-400 hover:text-slate-900"><X/></button>
+               </div>
+               <form onSubmit={handleSaveEditedLog} className="p-8 space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400">Colaborador</label>
+                    <input 
+                      type="text" 
+                      value={editingLog.userName} 
+                      disabled 
+                      className="w-full pl-6 pr-6 py-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400">Tipo de Fichada</label>
+                    <input 
+                      type="text" 
+                      value={editingLog.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'} 
+                      disabled 
+                      className="w-full pl-6 pr-6 py-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" 
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400">Fecha</label>
+                      <input 
+                        type="date" 
+                        value={editingLog.timestamp.split('T')[0]} 
+                        onChange={e => setEditingLog({...editingLog, timestamp: `${e.target.value}T${editingLog.timestamp.split('T')[1]}`})} 
+                        className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400">Sede</label>
+                      <input 
+                        type="text" 
+                        value={editingLog.locationName} 
+                        disabled 
+                        className="w-full pl-6 pr-6 py-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" 
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400">Hora</label>
+                    <input 
+                      type="time" 
+                      value={editingLog.timestamp.split('T')[1].substring(0,5)} 
+                      onChange={e => setEditingLog({...editingLog, timestamp: `${editingLog.timestamp.split('T')[0]}T${e.target.value}:00`})} 
+                      className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-xs outline-none" 
+                    />
+                  </div>
+                  <div className="pt-4 flex gap-4">
+                    <button type="button" onClick={() => { setShowEditLogModal(false); setEditingLog(null); }} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancelar</button>
+                    <button type="submit" disabled={isSavingManual} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl flex items-center justify-center gap-2">
+                       {isSavingManual ? <RefreshCw className="animate-spin" size={14}/> : <Save size={14}/>} Guardar Cambios
+                    </button>
+                  </div>
+               </form>
+            </div>
+          </div>
+        )}
+
         {showAlerts && (
           <div className="fixed inset-0 z-[200] bg-slate-900/95 backdrop-blur-xl flex items-center justify-center p-2 md:p-6">
             <div className="bg-white w-full max-w-5xl max-h-[95vh] rounded-[40px] md:rounded-[64px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 border-4 border-slate-100">
@@ -683,7 +781,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                     )}
                                 </div>
                                 <div className="bg-slate-50 p-6 rounded-[28px] border-2 border-slate-100 relative">
-                                    <p className="text-[11px] italic text-slate-600 leading-relaxed font-medium">"{log.aiFeedback}"</p>
+                                    <p className="text-[11px] italic text-slate-600 leading-relaxed font-medium" title={log.aiFeedback}>"{log.aiFeedback}"</p>
                                     <div className="absolute -top-3 left-6 px-3 bg-white text-[8px] font-black uppercase text-slate-300 tracking-widest border border-slate-100 rounded-md">ANÁLISIS IA</div>
                                 </div>
                               </div>
@@ -898,10 +996,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                           <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : (log.dressCodeStatus === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700')}`}>{log.dressCodeStatus === 'PASS' ? 'Correcto' : (log.dressCodeStatus === 'SKIPPED' ? 'Omitido' : 'Error')}</span>
                         </td>
                         <td className="p-6 max-w-xs">
-                          <p className="text-[10px] italic text-slate-500 leading-relaxed line-clamp-2">"{log.aiFeedback}"</p>
+                          <p className="text-[10px] italic text-slate-500 leading-relaxed line-clamp-2" title={log.aiFeedback}>"{log.aiFeedback}"</p>
                         </td>
                         <td className="p-6 text-center">
-                          <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-3 text-slate-200 hover:text-red-500 transition-all">{isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={20}/>}</button>
+                          <div className="flex items-center justify-center gap-2">
+                            <button onClick={() => handleEditLog(log)} className="p-3 text-slate-400 hover:text-blue-500 transition-all"><Pencil size={20}/></button>
+                            <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-3 text-slate-200 hover:text-red-500 transition-all">{isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={20}/>}</button>
+                          </div>
                         </td>
                       </tr>
                     );
