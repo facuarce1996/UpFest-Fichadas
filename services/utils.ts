@@ -102,7 +102,7 @@ export const fetchUsers = async (): Promise<User[]> => {
     legajo: u.legajo,
     password: u.password,
     dressCode: u.dress_code,
-    referenceImage: u.reference_image,
+    photoRef: u.reference_image,
     schedule: u.schedule || [],
     assignedLocations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
     isActive: u.is_active
@@ -198,11 +198,11 @@ export const addLog = async (log: LogEntry): Promise<void> => {
 };
 
 export const saveUser = async (user: User): Promise<void> => {
-  let finalRefImage = user.referenceImage;
+  let finalRefImage = user.photoRef;
 
-  if (user.referenceImage && user.referenceImage.startsWith('data:image')) {
+  if (user.photoRef && user.photoRef.startsWith('data:image')) {
     const fileName = `users/${user.dni}_ref_${new Date().getTime()}.jpg`;
-    finalRefImage = await uploadImage(user.referenceImage, 'fichadas', fileName);
+    finalRefImage = await uploadImage(user.photoRef, 'fichadas', fileName);
   }
 
   const payload = {
@@ -245,7 +245,7 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
     legajo: data.legajo,
     password: data.password,
     dressCode: data.dress_code,
-    referenceImage: data.reference_image,
+    photoRef: data.reference_image,
     schedule: data.schedule || [],
     assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
     isActive: data.is_active

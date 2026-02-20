@@ -34,7 +34,7 @@ export interface User {
   legajo: string;
   password?: string;
   dressCode: string;
-  referenceImage: string | null;
+  photoRef: string | null;
   schedule: WorkSchedule[];
   assignedLocations?: string[];
   isActive?: boolean;

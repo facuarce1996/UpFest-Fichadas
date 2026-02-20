@@ -66,9 +66,9 @@ export const analyzeCheckIn = async (
   const parts: any[] = [
     { text: `Actúa como un monitor de RRHH para UpFest. 
       Analiza la imagen actual y compárala con la de referencia si existe.
-      REGLA CRÍTICA DE VESTIMENTA: El empleado DEBE cumplir con la siguiente instrucción de vestimenta: '${dressCode}'.
-      Evalúa si la ropa en la foto actual cumple con esta regla.
-      Si no cumple, dressCodeMatches debe ser false.
+      REGLA CRÍTICA DE VESTIMENTA: El empleado DEBE cumplir estrictamente con la siguiente instrucción de vestimenta: '${dressCode}'.
+      Evalúa si la ropa en la foto actual cumple con esta regla. Si no cumple, dressCodeMatches debe ser false.
+      IMPORTANTE: En tu descripción, NO menciones ningún color específico (como 'naranja') a menos que sea parte explícita de la instrucción de vestimenta proporcionada ('${dressCode}'). Si hay un incumplimiento, haz referencia a la instrucción de vestimenta dada.
       Responde estrictamente en formato JSON.` },
     { 
       inlineData: { 

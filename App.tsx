@@ -89,6 +89,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     locationId: ''
   });
   const [isSavingManual, setIsSavingManual] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState<string | null>(null);
   const [showEditLogModal, setShowEditLogModal] = useState(false);
   const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
   
@@ -352,12 +353,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       
       let iaResult: ValidationResult;
       try {
-        iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
+        iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
       } catch (err: any) {
         if (isAIStudio && (err.message?.includes("403") || err.message?.includes("API key") || err.message?.includes("401"))) {
           setLoadingMsg("LLAVE INVÁLIDA. SELECCIONA UNA...");
           await handleOpenApiKeyDialog();
-          iaResult = await analyzeCheckIn(photo, user.dressCode, user.referenceImage);
+          iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
         } else {
           throw err;
         }
@@ -423,6 +424,36 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     setIsDeleting(logId);
     try { await deleteLog(logId); setAdminLogs(prev => prev.filter(l => l.id !== logId)); } 
     catch (e: any) { alert(e.message); } finally { setIsDeleting(null); }
+  };
+
+  const handleRevalidateLog = async (log: LogEntry) => {
+    if (!confirm('¿CONFIRMAS REVALIDAR ESTA FICHADA? Se volverá a ejecutar el análisis de IA.')) return;
+    setIsRevalidating(log.id);
+    try {
+      const userRef = allUsers.find(u => u.id === log.userId)?.photoRef;
+      if (!userRef) {
+        alert('No se encontró foto de referencia para el usuario.');
+        setIsRevalidating(null);
+        return;
+      }
+      const userDressCode = allUsers.find(u => u.id === log.userId)?.dressCode || 'N/A';
+
+      const validationResult = await analyzeCheckIn(log.photoEvidence, userDressCode, userRef);
+      const updatedLog = {
+        ...log,
+        dressCodeStatus: (validationResult.dressCodeMatches ? 'PASS' : 'FAIL') as 'PASS' | 'FAIL' | 'SKIPPED',
+        identityStatus: (validationResult.identityMatch ? 'MATCH' : 'NO_MATCH') as 'MATCH' | 'NO_MATCH' | 'SKIPPED',
+        aiFeedback: validationResult.description,
+      };
+      await updateLog(updatedLog);
+      alert('Fichada revalidada con éxito.');
+      loadData();
+    } catch (error) {
+      console.error('Error al revalidar fichada:', error);
+      alert('Error al revalidar fichada.');
+    } finally {
+      setIsRevalidating(null);
+    }
   };
 
   const handleSaveEditedLog = async (e: React.FormEvent) => {
@@ -1000,6 +1031,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                         </td>
                         <td className="p-6 text-center">
                           <div className="flex items-center justify-center gap-2">
+                            <button onClick={() => handleRevalidateLog(log)} disabled={isRevalidating === log.id || !log.photoEvidence || log.photoEvidence === 'manual'} className="p-3 text-slate-400 hover:text-emerald-500 transition-all disabled:opacity-30 disabled:cursor-not-allowed"><RefreshCw size={20}/></button>
                             <button onClick={() => handleEditLog(log)} className="p-3 text-slate-400 hover:text-blue-500 transition-all"><Pencil size={20}/></button>
                             <button disabled={isDeleting === log.id} onClick={() => handleDeleteLog(log.id)} className="p-3 text-slate-200 hover:text-red-500 transition-all">{isDeleting === log.id ? <RefreshCw className="animate-spin" size={16}/> : <Trash2 size={20}/>}</button>
                           </div>
@@ -1081,7 +1113,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             <h3 className="font-black text-[10px] uppercase text-slate-400 tracking-widest mb-4">Perfil</h3>
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-2xl bg-slate-50 overflow-hidden border-2 border-slate-100 shadow-sm shrink-0">
-                {user.referenceImage ? <img src={user.referenceImage} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
+                {user.photoRef ? <img src={user.photoRef} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
               </div>
               <div>
                 <h4 className="font-black text-lg text-slate-900 uppercase leading-none">{user.name}</h4>
@@ -1215,7 +1247,7 @@ const AdminDashboard = () => {
             password: String(row['Contraseña'] || '1234'),
             dressCode: String(row['Codigo Vestimenta'] || ''),
             schedule: schedule,
-            referenceImage: null,
+            photoRef: null,
             assignedLocations: [],
             isActive: true
           };
@@ -1266,7 +1298,7 @@ const AdminDashboard = () => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setFormData({ ...formData, referenceImage: reader.result as string });
+      reader.onloadend = () => setFormData({ ...formData, photoRef: reader.result as string });
       reader.readAsDataURL(file);
     }
   };
@@ -1358,7 +1390,7 @@ const AdminDashboard = () => {
                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
                  <td className="p-6 flex items-center gap-4">
                    <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0">
-                     {u.referenceImage && <img src={u.referenceImage} className="w-full h-full object-cover" />}
+                     {u.photoRef && <img src={u.photoRef} className="w-full h-full object-cover" />}
                    </div>
                    <span className="font-black text-slate-800 uppercase text-sm">{u.name}</span>
                  </td>
@@ -1408,7 +1440,7 @@ const AdminDashboard = () => {
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 md:gap-12">
                 <div className="flex flex-col items-center gap-6">
                     <div className="aspect-[4/5] w-full bg-slate-50 rounded-[32px] border-4 border-slate-100 relative overflow-hidden group shadow-inner">
-                       {formData.referenceImage ? <img src={formData.referenceImage} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><ImageIcon size={48}/></div>}
+                       {formData.photoRef ? <img src={formData.photoRef} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><ImageIcon size={48}/></div>}
                        <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-black text-xs uppercase gap-2 backdrop-blur-sm"><Upload size={18}/> Cambiar</button>
                     </div>
                     <input type="file" ref={fileInputRef} onChange={handleImageChange} className="hidden" accept="image/*" />
