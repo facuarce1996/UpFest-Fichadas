@@ -11,7 +11,7 @@ const responseSchema = {
     },
     dressCodeMatches: {
       type: Type.BOOLEAN,
-      description: "True if the person is wearing the required uniform (orange company shirt).",
+      description: "True if the person is wearing the required uniform specified in the prompt.",
     },
     description: {
       type: Type.STRING,
@@ -66,9 +66,9 @@ export const analyzeCheckIn = async (
   const parts: any[] = [
     { text: `Actúa como un monitor de RRHH para UpFest. 
       Analiza la imagen actual y compárala con la de referencia si existe.
-      REGLA CRÍTICA DE VESTIMENTA: El empleado DEBE vestir una prenda superior de color NARANJA.
-      Si no es naranja, dressCodeMatches debe ser false.
-      Instrucción de vestimenta del perfil: ${dressCode}.
+      REGLA CRÍTICA DE VESTIMENTA: El empleado DEBE cumplir con la siguiente instrucción de vestimenta: '${dressCode}'.
+      Evalúa si la ropa en la foto actual cumple con esta regla.
+      Si no cumple, dressCodeMatches debe ser false.
       Responde estrictamente en formato JSON.` },
     { 
       inlineData: { 

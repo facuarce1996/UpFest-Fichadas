@@ -461,11 +461,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     }
   };
 
-  const filteredManualUsers = allUsers.filter(u => 
-    u.name.toLowerCase().includes(manualUserSearch.toLowerCase()) || 
-    u.dni.toLowerCase().includes(manualUserSearch.toLowerCase()) ||
-    u.legajo.toLowerCase().includes(manualUserSearch.toLowerCase())
-  );
+  const filteredManualUsers = allUsers.filter(u => {
+    const search = (manualUserSearch || '').toLowerCase();
+    const nameMatch = u.name ? u.name.toLowerCase().includes(search) : false;
+    const dniMatch = u.dni ? u.dni.toLowerCase().includes(search) : false;
+    const legajoMatch = u.legajo ? u.legajo.toLowerCase().includes(search) : false;
+    return nameMatch || dniMatch || legajoMatch;
+  });
 
   if (user.role === 'Admin') {
     const incidentLogs = adminLogs.filter(l => l.dressCodeStatus === 'FAIL' || l.identityStatus === 'NO_MATCH');
@@ -520,14 +522,14 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               type="button"
                               onClick={() => {
                                 setManualLogData({...manualLogData, userId: u.id});
-                                setManualUserSearch(u.name.toUpperCase());
+                                setManualUserSearch((u.name || '').toUpperCase());
                                 setIsUserListOpen(false);
                               }}
                               className="w-full text-left px-6 py-3 hover:bg-orange-50 transition-colors flex items-center justify-between group"
                             >
                                <div>
-                                  <span className="block text-xs font-black text-slate-900 uppercase group-hover:text-orange-700">{u.name}</span>
-                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">DNI: {u.dni} | Lgj: {u.legajo}</span>
+                                  <span className="block text-xs font-black text-slate-900 uppercase group-hover:text-orange-700">{u.name || 'SIN NOMBRE'}</span>
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">DNI: {u.dni || 'N/A'} | Lgj: {u.legajo || 'N/A'}</span>
                                </div>
                                {manualLogData.userId === u.id && <Check size={16} className="text-orange-600" />}
                             </button>
