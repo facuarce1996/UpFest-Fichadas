@@ -66,6 +66,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [loadingMsg, setLoadingMsg] = useState('');
   const [adminLogs, setAdminLogs] = useState<LogEntry[]>([]);
   const [userTodayLogs, setUserTodayLogs] = useState<LogEntry[]>([]);
+  const [displayLogs, setDisplayLogs] = useState<LogEntry[]>([]);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [showAlerts, setShowAlerts] = useState(false);
@@ -142,6 +143,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setLocations(allLocs);
       setAllUsers(users);
       if (user.role === 'Admin') setAdminLogs(logs);
+      setDisplayLogs(logs);
       
       const todayStr = new Date().toDateString();
       setUserTodayLogs(logs.filter(l => l.userId === user.id && new Date(l.timestamp).toDateString() === todayStr));
@@ -989,8 +991,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 <tbody className="divide-y divide-slate-100">
                   {adminLogs.length === 0 ? (
                     <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
-                  ) : adminLogs.map(log => {
-                    const durationMins = getShiftDuration(log, adminLogs);
+                  ) : displayLogs.map(log => {
+                    const durationMins = getShiftDuration(log, displayLogs);
                     const isNoExitCase = noExitLogs.some(n => n.id === log.id);
                     return (
                       <tr key={log.id} className={`hover:bg-white transition-all ${isNoExitCase ? 'bg-orange-50/20' : ''}`}>
