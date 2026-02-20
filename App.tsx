@@ -450,7 +450,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       loadData();
     } catch (error) {
       console.error('Error al revalidar fichada:', error);
-      alert('Error al revalidar fichada.');
+      alert(`Error al revalidar fichada: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsRevalidating(null);
     }
