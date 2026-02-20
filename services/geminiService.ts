@@ -61,7 +61,12 @@ export const analyzeCheckIn = async (
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   // Preparar la foto actual (ya viene en Base64 desde la cámara)
-  const currentPhotoData = cleanBase64(currentPhotoBase64);
+  let currentPhotoData = '';
+  if (currentPhotoBase64.startsWith('http')) {
+    currentPhotoData = await imageUrlToBase64(currentPhotoBase64);
+  } else {
+    currentPhotoData = cleanBase64(currentPhotoBase64);
+  }
 
   const parts: any[] = [
     { text: `Actúa como un monitor de RRHH para UpFest. 

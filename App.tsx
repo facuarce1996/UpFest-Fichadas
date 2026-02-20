@@ -663,12 +663,14 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400">Tipo de Fichada</label>
-                    <input 
-                      type="text" 
-                      value={editingLog.type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO'} 
-                      disabled 
-                      className="w-full pl-6 pr-6 py-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" 
-                    />
+                    <select
+                      value={editingLog.type}
+                      onChange={e => setEditingLog({...editingLog, type: e.target.value as 'CHECK_IN' | 'CHECK_OUT'})}
+                      className="w-full pl-6 pr-6 py-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none"
+                    >
+                      <option value="CHECK_IN">INGRESO</option>
+                      <option value="CHECK_OUT">EGRESO</option>
+                    </select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -682,12 +684,15 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400">Sede</label>
-                      <input 
-                        type="text" 
-                        value={editingLog.locationName} 
-                        disabled 
-                        className="w-full pl-6 pr-6 py-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" 
-                      />
+                      <select
+                        value={editingLog.locationId}
+                        onChange={e => setEditingLog({...editingLog, locationId: e.target.value})}
+                        className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none"
+                      >
+                        {locations.map(loc => (
+                          <option key={loc.id} value={loc.id}>{loc.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div className="space-y-2">
