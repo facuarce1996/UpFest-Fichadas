@@ -294,6 +294,7 @@ export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => 
 
 export const updateLog = async (log: LogEntry): Promise<void> => {
   const { error } = await supabase.from('logs').update({
+    timestamp: log.timestamp,
     type: log.type,
     location_id: log.locationId,
     location_name: log.locationName,

@@ -700,7 +700,25 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <input 
                       type="time" 
                       value={editingLog.timestamp.split('T')[1].substring(0,5)} 
-                      onChange={e => setEditingLog({...editingLog, timestamp: `${editingLog.timestamp.split('T')[0]}T${e.target.value}:00`})} 
+                      onChange={e => {
+                        const datePart = editingLog.timestamp.split('T')[0];
+                        const timePart = e.target.value;
+                        const [localHoursStr, localMinutesStr] = timePart.split(':');
+                        const localHours = parseInt(localHoursStr, 10);
+                        const localMinutes = parseInt(localMinutesStr, 10);
+
+                        const [yearStr, monthStr, dayStr] = datePart.split('-');
+                        const year = parseInt(yearStr, 10);
+                        const month = parseInt(monthStr, 10) - 1; // Month is 0-indexed
+                        const day = parseInt(dayStr, 10);
+
+                        // Argentina is UTC-3. To get UTC hours from local hours, add 3.
+                        const utcHours = localHours + 3;
+                        const utcMinutes = localMinutes;
+
+                        const newUtcDate = new Date(Date.UTC(year, month, day, utcHours, utcMinutes, 0));
+                        setEditingLog({...editingLog, timestamp: newUtcDate.toISOString()});
+                      }} 
                       className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-xs outline-none" 
                     />
                   </div>
