@@ -15,6 +15,7 @@ import {
   LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity, Eye, EyeOff, CalendarPlus, ChevronDown, TimerOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { toDate, format } from 'date-fns-tz';
 
 // --- Helpers de Plataforma ---
 const getAIStudio = () => (window as any).aistudio;
@@ -31,21 +32,7 @@ const handleOpenApiKeyDialog = async () => {
   }
 };
 
-const getFormattedDate = (dateStr: string) => {
-  try {
-    if (!dateStr) return '---';
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
-      // Intento de parseo manual si viene en formato YYYY-MM-DD HH:mm:ss o similar
-      const parts = dateStr.split(' ');
-      if (parts.length > 0) return parts[0].split('-').reverse().join('/');
-      return 'Fecha inválida';
-    }
-    return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  } catch (e) {
-    return 'Fecha inválida';
-  }
-};
+
 
 const formatMinutes = (mins: number) => {
   if (mins < 60) return `${mins} min`;
@@ -128,10 +115,11 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const sDate = start !== undefined ? start : filterStartDate;
     const eDate = end !== undefined ? end : filterEndDate;
     const deviceLocId = localStorage.getItem('upfest_terminal_location_id');
+    const timeZone = 'America/Argentina/Buenos_Aires';
 
     try {
       const logsPromise = (sDate && eDate) 
-        ? fetchLogsByDateRange(new Date(sDate + 'T00:00:00'), new Date(eDate + 'T23:59:59'))
+        ? fetchLogsByDateRange(toDate(`${sDate}T00:00:00`, { timeZone }), toDate(`${eDate}T23:59:59`, { timeZone }))
         : fetchLogs();
 
       const [allLocs, logs, users] = await Promise.all([
@@ -163,19 +151,29 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   }, [loadData, filterStartDate, filterEndDate]);
 
   const applyQuickFilter = (type: 'today' | 'yesterday' | 'week' | 'month') => {
-    const today = new Date();
-    let start = new Date();
-    let end = new Date();
+    const nowInArgentina = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+    let start = new Date(nowInArgentina);
+    let end = new Date(nowInArgentina);
+
     setActiveQuickFilter(type);
+
     switch(type) {
-      case 'today': break;
-      case 'yesterday': start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); break;
-      case 'week': start.setDate(today.getDate() - 7); break;
-      case 'month': start.setDate(1); break;
+      case 'today':
+        break;
+      case 'yesterday':
+        start.setDate(nowInArgentina.getDate() - 1);
+        end.setDate(nowInArgentina.getDate() - 1);
+        break;
+      case 'week':
+        start.setDate(nowInArgentina.getDate() - 6);
+        break;
+      case 'month':
+        start.setDate(1);
+        break;
     }
-    const formatDate = (d: Date) => d.toISOString().split('T')[0];
-    const s = formatDate(start);
-    const e = formatDate(end);
+
+    const s = format(start, 'yyyy-MM-dd', { timeZone: 'America/Argentina/Buenos_Aires' });
+    const e = format(end, 'yyyy-MM-dd', { timeZone: 'America/Argentina/Buenos_Aires' });
     setFilterStartDate(s);
     setFilterEndDate(e);
     loadData(true, s, e);
@@ -467,14 +465,27 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const updatedLog = {
         ...editingLog,
         // Aseguramos que el timestamp se actualice con la fecha y hora del formulario
-        timestamp: new Date(editingLog.timestamp).toISOString(),
+        timestamp: toDate(editingLog.timestamp.substring(0, 19), { timeZone: 'America/Argentina/Buenos_Aires' }).toISOString(),
       };
-      await updateLog(updatedLog);
+      // Find the location name corresponding to the selected locationId
+      const selectedLocation = locations.find(loc => loc.id === editingLog.locationId);
+
+      const finalUpdatedLog = {
+        ...updatedLog,
+        locationName: selectedLocation ? selectedLocation.name : editingLog.locationName, // Update locationName
+      };
+
+      await updateLog(finalUpdatedLog);
+
+      // Update local state for instant UI feedback
+      // Update local state for instant UI feedback
+      setDisplayLogs(prevLogs => 
+        prevLogs.map(log => (log.id === finalUpdatedLog.id ? finalUpdatedLog : log))
+      );
 
       alert('Fichada actualizada con éxito.');
       setShowEditLogModal(false);
       setEditingLog(null);
-      loadData();
     } catch (error) {
       console.error('Error al actualizar fichada:', error);
       alert('Error al actualizar fichada.');
@@ -678,7 +689,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       <input 
                         type="date" 
                         value={editingLog.timestamp.split('T')[0]} 
-                        onChange={e => setEditingLog({...editingLog, timestamp: `${e.target.value}T${editingLog.timestamp.split('T')[1]}`})} 
+                        onChange={e => {
+                          const timePart = new Date(editingLog.timestamp).toLocaleTimeString('en-GB', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+                          setEditingLog({...editingLog, timestamp: `${e.target.value}T${timePart}`});
+                        }} 
                         className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm outline-none" 
                       />
                     </div>
@@ -699,7 +713,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <label className="text-[10px] font-black uppercase text-slate-400">Hora</label>
                     <input 
                       type="time" 
-                      value={editingLog.timestamp.split('T')[1].substring(0,5)} 
+                      value={new Date(editingLog.timestamp).toLocaleTimeString('en-GB', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hour12: false })} 
                       onChange={e => {
                         const datePart = editingLog.timestamp.split('T')[0];
                         const timePart = e.target.value;
@@ -819,7 +833,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                       <span className="px-4 py-1.5 bg-slate-100 text-slate-500 text-[10px] font-black uppercase rounded-lg border border-slate-200">Lgj: {log.legajo}</span>
                                     </div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                      <Building size={14}/> Sede: {log.locationName} <span className="text-slate-200">|</span> <Clock size={14}/> {getFormattedDate(log.timestamp)}
+                                      <Building size={14}/> Sede: {log.locationName} <span className="text-slate-200">|</span> <Clock size={14}/> {new Date(log.timestamp).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}
                                     </p>
                                 </div>
                                 <div className="flex flex-wrap gap-3">
@@ -1030,7 +1044,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                         </td>
                         <td className="p-6 text-center">
                             <span className="text-[10px] md:text-xs font-black text-slate-900 font-mono uppercase bg-slate-100 px-3 py-1 rounded-lg">{new Date(log.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}</span>
-                            <span className="block text-[9px] text-slate-400 uppercase font-black mt-1.5">{getFormattedDate(log.timestamp)}</span>
+                            <span className="block text-[9px] text-slate-400 uppercase font-black mt-1.5">{new Date(log.timestamp).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}</span>
                         </td>
                         <td className="p-6 text-center">
                           <span className={`px-5 py-2 rounded-full text-[9px] font-black uppercase border-2 ${log.type === 'CHECK_IN' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
