@@ -50,8 +50,8 @@ export interface LogEntry {
   locationId: string;
   locationName: string;
   locationStatus: 'VALID' | 'INVALID' | 'SKIPPED';
-  dressCodeStatus: 'PASS' | 'FAIL' | 'SKIPPED';
-  identityStatus: 'MATCH' | 'NO_MATCH' | 'SKIPPED';
+  dressCodeStatus: 'PASS' | 'FAIL' | 'SKIPPED' | 'PENDING';
+  identityStatus: 'MATCH' | 'NO_MATCH' | 'SKIPPED' | 'PENDING';
   scheduleStatus?: 'ON_TIME' | 'OFF_SCHEDULE';
   photoEvidence: string;
   aiFeedback: string;

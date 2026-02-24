@@ -169,8 +169,16 @@ export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogE
   return (data || []).map(mapLog);
 };
 
-export const addLog = async (log: LogEntry): Promise<void> => {
+function uuidv4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+export const addLog = async (log: LogEntry): Promise<string> => {
   let finalPhotoUrl = log.photoEvidence;
+  const newId = uuidv4();
 
   if (log.photoEvidence && log.photoEvidence.startsWith('data:image')) {
     const timestamp = new Date().getTime();
@@ -179,7 +187,7 @@ export const addLog = async (log: LogEntry): Promise<void> => {
   }
 
   const { error } = await supabase.from('logs').insert([{
-    id: crypto.randomUUID(),
+    id: newId,
     user_id: log.userId,
     user_name: log.userName,
     legajo: log.legajo,
@@ -195,6 +203,7 @@ export const addLog = async (log: LogEntry): Promise<void> => {
     ai_feedback: log.aiFeedback
   }]);
   if (error) throw error;
+  return newId;
 };
 
 export const saveUser = async (user: User): Promise<void> => {
@@ -222,7 +231,7 @@ export const saveUser = async (user: User): Promise<void> => {
     const { error } = await supabase.from('users').update(payload).eq('id', user.id);
     if (error) throw error;
   } else {
-    const newId = crypto.randomUUID();
+    const newId = uuidv4();
     const { error } = await supabase.from('users').insert([{ ...payload, id: newId }]);
     if (error) throw error;
   }
@@ -265,7 +274,7 @@ export const saveLocation = async (loc: Location): Promise<void> => {
     const { error } = await supabase.from('locations').update(payload).eq('id', loc.id);
     if (error) throw error;
   } else {
-    const { error } = await supabase.from('locations').insert([{ ...payload, id: crypto.randomUUID() }]);
+    const { error } = await supabase.from('locations').insert([{ ...payload, id: uuidv4() }]);
     if (error) throw error;
   }
 };

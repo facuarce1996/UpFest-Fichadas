@@ -180,6 +180,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   };
 
   const handleApplyFilter = () => { if (filterStartDate && filterEndDate) { setActiveQuickFilter(null); loadData(true); } };
+
+
+
   const handleClearFilter = () => { setFilterStartDate(''); setFilterEndDate(''); setActiveQuickFilter(null); loadData(true, '', ''); };
 
   const getShiftDuration = (log: LogEntry, logList: LogEntry[]) => {
@@ -349,44 +352,52 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           locStatus = dist <= deviceLocation.radiusMeters ? 'VALID' : 'INVALID';
         }
       } catch (e) { console.warn("Geo error", e); }
-      setLoadingMsg('IA: Analizando Identidad...');
-      
-      let iaResult: ValidationResult;
-      try {
-        iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
-      } catch (err: any) {
-        if (isAIStudio && (err.message?.includes("403") || err.message?.includes("API key") || err.message?.includes("401"))) {
-          setLoadingMsg("LLAVE INVÁLIDA. SELECCIONA UNA...");
-          await handleOpenApiKeyDialog();
-          iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
-        } else {
-          throw err;
-        }
-      }
-
       const lastLog = await fetchLastLog(user.id);
       let type: 'CHECK_IN' | 'CHECK_OUT' = 'CHECK_IN';
-      
       if (lastLog && lastLog.type === 'CHECK_IN') {
-        const lastTimestamp = new Date(lastLog.timestamp).getTime();
-        const now = new Date().getTime();
-        const diffHours = (now - lastTimestamp) / (1000 * 60 * 60);
+        const diffHours = (new Date().getTime() - new Date(lastLog.timestamp).getTime()) / 3600000;
         if (diffHours < 20) type = 'CHECK_OUT';
-        else type = 'CHECK_IN';
-      } else {
-        type = 'CHECK_IN';
       }
 
-      const newLog: LogEntry = {
-        id: '', userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
+      const preliminaryLog: Omit<LogEntry, 'id'> = {
+        userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
         locationId: deviceLocation?.id || 'manual', locationName: deviceLocation?.name || 'Manual', locationStatus: locStatus,
-        dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL', identityStatus: iaResult.identityMatch ? 'MATCH' : 'NO_MATCH',
-        photoEvidence: photo, aiFeedback: iaResult.description, scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
+        dressCodeStatus: 'PENDING', identityStatus: 'PENDING',
+        photoEvidence: photo, aiFeedback: 'IA Analizando...', scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
       };
-      await addLog(newLog);
+
+      const savedLogId = await addLog(preliminaryLog as LogEntry);
       setPhoto(null);
       loadData();
       setSuccessAction({ type: type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO', countdown: 7 });
+      setLoading(false);
+
+      // --- Análisis Asíncrono --- 
+      (async () => {
+        try {
+          const iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
+          const finalLog: LogEntry = {
+            ...preliminaryLog,
+            id: savedLogId,
+            dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL',
+            identityStatus: iaResult.identityMatch ? 'MATCH' : 'NO_MATCH',
+            aiFeedback: iaResult.description,
+          };
+          await updateLog(finalLog);
+          loadData(); // Recargar para que el monitor vea el cambio
+        } catch (err) {
+          console.error("Error en análisis asíncrono:", err);
+          const errorLog: LogEntry = {
+             ...preliminaryLog,
+             id: savedLogId,
+             dressCodeStatus: 'FAIL',
+             identityStatus: 'NO_MATCH', // Changed from 'FAIL' to 'NO_MATCH' to match the type
+             aiFeedback: 'Error de la IA: ' + (err instanceof Error ? err.message : 'Error desconocido'),
+          };
+          await updateLog(errorLog);
+          loadData();
+        }
+      })();
     } catch (error: any) { 
       console.error("Error en validación:", error);
       alert("Error en validación: " + (error.message || "Error desconocido"));
@@ -1060,10 +1071,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                            ) : <span className="text-slate-200">{isNoExitCase ? <span className="text-[9px] font-black text-orange-500 uppercase">Sin Egreso</span> : '---'}</span>}
                         </td>
                         <td className="p-6 text-center border-l border-slate-100">
-                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-700' : (log.identityStatus === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700')}`}>{log.identityStatus === 'MATCH' ? 'Válido' : (log.identityStatus === 'SKIPPED' ? 'Omitido' : 'Fallo')}</span>
+                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.identityStatus === 'PENDING' ? 'bg-amber-100 text-amber-700' : log.identityStatus === 'MATCH' ? 'bg-emerald-100 text-emerald-700' : (log.identityStatus === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700')}`}>{log.identityStatus === 'PENDING' ? 'Analizando...' : log.identityStatus === 'MATCH' ? 'Válido' : (log.identityStatus === 'SKIPPED' ? 'Omitido' : 'Fallo')}</span>
                         </td>
                         <td className="p-6 text-center">
-                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : (log.dressCodeStatus === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700')}`}>{log.dressCodeStatus === 'PASS' ? 'Correcto' : (log.dressCodeStatus === 'SKIPPED' ? 'Omitido' : 'Error')}</span>
+                          <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${log.dressCodeStatus === 'PENDING' ? 'bg-amber-100 text-amber-700' : log.dressCodeStatus === 'PASS' ? 'bg-emerald-100 text-emerald-700' : (log.dressCodeStatus === 'SKIPPED' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700')}`}>{log.dressCodeStatus === 'PENDING' ? 'Analizando...' : log.dressCodeStatus === 'PASS' ? 'Correcto' : (log.dressCodeStatus === 'SKIPPED' ? 'Omitido' : 'Error')}</span>
                         </td>
                         <td className="p-6 max-w-xs">
                           <p className="text-[10px] italic text-slate-500 leading-relaxed line-clamp-2" title={log.aiFeedback}>"{log.aiFeedback}"</p>
@@ -1214,6 +1225,7 @@ const AdminDashboard = () => {
   const [dbHealthy, setDbHealthy] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [zoomedUserImage, setZoomedUserImage] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -1253,6 +1265,20 @@ const AdminDashboard = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Plantilla_RRHH");
     XLSX.writeFile(wb, "UpFest_Plantilla_RRHH.xlsx");
+  };
+
+  const handleExportUsers = () => {
+    const usersToExport = users.map(user => ({
+      'Nombre Completo': user.name,
+      'DNI': user.dni,
+      'Legajo': user.legajo,
+      'Rol': user.role,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(usersToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Usuarios');
+    XLSX.writeFile(wb, 'nomina_upfest_control.xlsx');
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1372,6 +1398,17 @@ const AdminDashboard = () => {
 
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 animate-in fade-in">
+      {zoomedUserImage && (
+        <div 
+          className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4" 
+          onClick={() => setZoomedUserImage(null)}
+        >
+          <img 
+            src={zoomedUserImage} 
+            className="max-w-full max-h-full rounded-[40px] shadow-2xl border-4 md:border-8 border-white animate-in zoom-in-95" 
+          />
+        </div>
+      )}
       {!dbHealthy && (
         <div className="bg-amber-50 border border-amber-200 p-6 rounded-[24px] flex flex-col md:flex-row items-center gap-4 animate-bounce shadow-xl">
            <Activity className="text-amber-600 shrink-0" size={32}/>
@@ -1395,6 +1432,9 @@ const AdminDashboard = () => {
             {importing ? <RefreshCw className="animate-spin" size={18}/> : <FileUp size={18} />} {importing ? 'Subiendo...' : 'Importar Excel'}
           </button>
           <input type="file" ref={importInputRef} onChange={handleImportExcel} className="hidden" accept=".xlsx,.xls" />
+          <button onClick={handleExportUsers} className="flex-1 md:flex-none bg-white text-slate-700 border border-slate-200 px-6 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">
+            <Download size={18} /> Exportar a Excel
+          </button>
           <button onClick={() => setIsCreating(true)} className="flex-1 md:flex-none bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
             <Plus size={18} /> Nuevo Colaborador
           </button>
@@ -1428,7 +1468,10 @@ const AdminDashboard = () => {
              ) : filteredUsers.map(u => (
                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
                  <td className="p-6 flex items-center gap-4">
-                   <div className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0">
+                   <div 
+                     onClick={() => u.photoRef && setZoomedUserImage(u.photoRef)}
+                     className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0 cursor-zoom-in"
+                   >
                      {u.photoRef && <img src={u.photoRef} className="w-full h-full object-cover" />}
                    </div>
                    <span className="font-black text-slate-800 uppercase text-sm">{u.name}</span>
