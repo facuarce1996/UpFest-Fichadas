@@ -62,6 +62,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
   const [isFiltering, setIsFiltering] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
   
   // Estado para Fichada Manual
@@ -118,19 +119,31 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const timeZone = 'America/Argentina/Buenos_Aires';
 
     try {
-      const logsPromise = (sDate && eDate) 
+      setFetchError(null);
+      const logsPromise = (sDate && eDate && sDate !== '' && eDate !== '') 
         ? fetchLogsByDateRange(toDate(`${sDate}T00:00:00`, { timeZone }), toDate(`${eDate}T23:59:59`, { timeZone }))
         : fetchLogs();
 
-      const [allLocs, logs, users] = await Promise.all([
+      const [allLocs, users] = await Promise.all([
         fetchLocations(),
-        logsPromise,
         fetchUsers()
       ]);
 
+      let logs = await logsPromise;
+
+      // --- CARGA DE EMERGENCIA ---
+      if (logs.length === 0 && (sDate || eDate)) {
+        console.warn("No se encontraron logs con el filtro actual. Intentando carga total...");
+        logs = await fetchLogs();
+      }
+
+      if (logs.length === 0) {
+        setFetchError("No se encontraron registros. Verifica las políticas RLS en Supabase o si la tabla 'logs' tiene datos.");
+      }
+
       setLocations(allLocs);
       setAllUsers(users);
-      if (user.role === 'Admin') setAdminLogs(logs);
+      setAdminLogs(logs);
       setDisplayLogs(logs);
       
       const todayStr = new Date().toDateString();
@@ -972,6 +985,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 <p className="text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest">En vivo - UpFest Control</p>
               </div>
               <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto justify-center">
+                <button 
+                  onClick={() => loadData(true)} 
+                  className={`flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full border flex items-center justify-center gap-3 transition-all bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm ${isFiltering ? 'opacity-50' : ''}`}
+                  title="Refrescar datos"
+                >
+                  <RefreshCw size={18} className={isFiltering ? 'animate-spin' : ''}/><span className="text-[10px] font-black uppercase">Refrescar</span>
+                </button>
                 <button onClick={() => setShowManualLogModal(true)} className="flex-1 md:flex-none px-4 md:px-6 py-3 md:py-4 rounded-full bg-slate-900 text-white flex items-center justify-center gap-3 transition-all hover:bg-slate-800 shadow-sm">
                     <CalendarPlus size={18}/><span className="text-[10px] font-black uppercase">Fichada Manual</span>
                 </button>
@@ -986,6 +1006,17 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 </button>
               </div>
            </div>
+
+           {fetchError && (
+             <div className="mb-8 p-6 bg-rose-50 border border-rose-200 rounded-[28px] flex items-center gap-4 animate-in slide-in-from-top-4">
+                <AlertTriangle className="text-rose-600 shrink-0" size={24}/>
+                <div className="flex-1">
+                  <p className="text-xs font-black text-rose-900 uppercase tracking-wider">Atención: {fetchError}</p>
+                  <p className="text-[10px] text-rose-600 mt-1">Si ves datos en Supabase pero no aquí, es probable que debas configurar las políticas RLS.</p>
+                </div>
+                <button onClick={() => loadData(true)} className="px-4 py-2 bg-rose-600 text-white text-[10px] font-black uppercase rounded-xl hover:bg-rose-700 transition-all">Reintentar</button>
+             </div>
+           )}
 
            <div className="mb-8 p-6 md:p-8 bg-slate-50/80 rounded-[28px] md:rounded-[40px] border border-slate-100 space-y-8">
               <div className="flex flex-wrap items-center gap-3">
@@ -1037,7 +1068,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {adminLogs.length === 0 ? (
+                  {displayLogs.length === 0 ? (
                     <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
                   ) : displayLogs.map(log => {
                     const durationMins = getShiftDuration(log, displayLogs);

@@ -124,26 +124,44 @@ export const fetchLocations = async (): Promise<Location[]> => {
 };
 
 const mapLog = (l: any): LogEntry => ({
-  id: l.id,
-  userId: l.user_id,
-  userName: l.user_name,
-  legajo: l.legajo,
-  timestamp: l.timestamp,
-  type: l.type,
-  locationId: l.location_id,
-  locationName: l.location_name,
-  locationStatus: l.location_status,
-  dressCodeStatus: l.dress_code_status,
-  identityStatus: l.identity_status,
-  scheduleStatus: l.schedule_status,
-  photoEvidence: l.photo_evidence,
-  aiFeedback: l.ai_feedback
+  id: l.id || '',
+  userId: l.user_id || '',
+  userName: l.user_name || 'Usuario Desconocido',
+  legajo: l.legajo || '---',
+  timestamp: l.timestamp || new Date().toISOString(),
+  type: l.type || 'CHECK_IN',
+  locationId: l.location_id || '',
+  locationName: l.location_name || 'Ubicación Desconocida',
+  locationStatus: l.location_status || 'SKIPPED',
+  dressCodeStatus: l.dress_code_status || 'SKIPPED',
+  identityStatus: l.identity_status || 'SKIPPED',
+  scheduleStatus: l.schedule_status || 'OFF_SCHEDULE',
+  photoEvidence: l.photo_evidence || '',
+  aiFeedback: l.ai_feedback || ''
 });
 
 export const fetchLogs = async (): Promise<LogEntry[]> => {
-  const { data, error } = await supabase.from('logs').select('*').order('timestamp', { ascending: false });
-  if (error) throw error;
-  return (data || []).map(mapLog);
+  try {
+    const { data, error, status } = await supabase
+      .from('logs')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(200);
+    
+    if (error) {
+      console.error("Error de Supabase:", error);
+      throw new Error(`Error ${status}: ${error.message}`);
+    }
+
+    if (!data || data.length === 0) {
+      console.warn("Supabase devolvió 0 registros. Verifica las políticas RLS en la tabla 'logs'.");
+    }
+
+    return (data || []).map(mapLog);
+  } catch (err: any) {
+    console.error("Error crítico en fetchLogs:", err);
+    throw err;
+  }
 };
 
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
