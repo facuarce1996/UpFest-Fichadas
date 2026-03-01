@@ -177,14 +177,30 @@ export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
 };
 
 export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogEntry[]> => {
-  const { data, error } = await supabase
-    .from('logs')
-    .select('*')
-    .gte('timestamp', start.toISOString())
-    .lte('timestamp', end.toISOString())
-    .order('timestamp', { ascending: false });
-  if (error) throw error;
-  return (data || []).map(mapLog);
+  try {
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error("Fechas inválidas proporcionadas al filtro.");
+    }
+
+    console.log(`Filtrando rango Supabase: ${start.toISOString()} hasta ${end.toISOString()}`);
+
+    const { data, error, status } = await supabase
+      .from('logs')
+      .select('*')
+      .gte('timestamp', start.toISOString())
+      .lte('timestamp', end.toISOString())
+      .order('timestamp', { ascending: false })
+      .limit(1000);
+    
+    if (error) {
+      console.error("Error de Supabase en rango:", error);
+      throw new Error(`Error ${status}: ${error.message}`);
+    }
+    return (data || []).map(mapLog);
+  } catch (err: any) {
+    console.error("Error crítico en fetchLogsByDateRange:", err);
+    throw err;
+  }
 };
 
 function uuidv4() {

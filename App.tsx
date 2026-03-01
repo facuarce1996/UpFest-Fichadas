@@ -64,6 +64,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [isFiltering, setIsFiltering] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
+  const [personSearchTerm, setPersonSearchTerm] = useState('');
   
   // Estado para Fichada Manual
   const [showManualLogModal, setShowManualLogModal] = useState(false);
@@ -118,18 +119,32 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const deviceLocId = localStorage.getItem('upfest_terminal_location_id');
     const timeZone = 'America/Argentina/Buenos_Aires';
 
+    console.log(`Cargando datos: ${sDate} a ${eDate} (showLoading: ${showLoading})`);
+
     try {
       setFetchError(null);
-      const logsPromise = (sDate && eDate && sDate !== '' && eDate !== '') 
-        ? fetchLogsByDateRange(toDate(`${sDate}T00:00:00`, { timeZone }), toDate(`${eDate}T23:59:59`, { timeZone }))
-        : fetchLogs();
+      
+      // Timeout de seguridad de 15 segundos
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Tiempo de espera agotado al conectar con el servidor.")), 15000)
+      );
 
-      const [allLocs, users] = await Promise.all([
-        fetchLocations(),
-        fetchUsers()
-      ]);
+      const dataFetchPromise = (async () => {
+        const logsPromise = (sDate && eDate && sDate !== '' && eDate !== '') 
+          ? fetchLogsByDateRange(toDate(`${sDate}T00:00:00`, { timeZone }), toDate(`${eDate}T23:59:59`, { timeZone }))
+          : fetchLogs();
 
-      let logs = await logsPromise;
+        const [allLocs, users, logsResult] = await Promise.all([
+          fetchLocations(),
+          fetchUsers(),
+          logsPromise
+        ]);
+        
+        return { allLocs, users, logsResult };
+      })();
+
+      const { allLocs, users, logsResult } = await Promise.race([dataFetchPromise, timeoutPromise]) as any;
+      let logs = logsResult;
 
       // --- CARGA DE EMERGENCIA ---
       if (logs.length === 0 && (sDate || eDate)) {
@@ -138,7 +153,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       }
 
       if (logs.length === 0) {
-        setFetchError("No se encontraron registros. Verifica las políticas RLS en Supabase o si la tabla 'logs' tiene datos.");
+        setFetchError("No se encontraron registros en este rango.");
       }
 
       setLocations(allLocs);
@@ -147,11 +162,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setDisplayLogs(logs);
       
       const todayStr = new Date().toDateString();
-      setUserTodayLogs(logs.filter(l => l.userId === user.id && new Date(l.timestamp).toDateString() === todayStr));
+      setUserTodayLogs(logs.filter((l: LogEntry) => l.userId === user.id && new Date(l.timestamp).toDateString() === todayStr));
       
-      if (deviceLocId) setDeviceLocation(allLocs.find(l => l.id === deviceLocId) || null);
-    } catch (err) {
+      if (deviceLocId) setDeviceLocation(allLocs.find((l: Location) => l.id === deviceLocId) || null);
+    } catch (err: any) {
       console.error("Error al cargar datos del monitor:", err);
+      setFetchError(err.message || "Error al conectar con la base de datos.");
     } finally {
       if (showLoading) setIsFiltering(false);
     }
@@ -196,7 +212,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
 
 
-  const handleClearFilter = () => { setFilterStartDate(''); setFilterEndDate(''); setActiveQuickFilter(null); loadData(true, '', ''); };
+  const handleClearFilter = () => { 
+    setFilterStartDate(''); 
+    setFilterEndDate(''); 
+    setActiveQuickFilter(null); 
+    setPersonSearchTerm('');
+    loadData(true, '', ''); 
+  };
 
   const getShiftDuration = (log: LogEntry, logList: LogEntry[]) => {
     if (log.type !== 'CHECK_OUT') return null;
@@ -1031,9 +1053,22 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                         <f.icon size={14}/> {f.label}
                     </button>
                 ))}
-                {(filterStartDate || filterEndDate) && (
+                {(filterStartDate || filterEndDate || personSearchTerm) && (
                     <button onClick={handleClearFilter} className="px-5 py-2.5 bg-rose-50 text-rose-600 border-2 border-rose-100 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-rose-100 transition-colors"><XOctagon size={14}/> Limpiar</button>
                 )}
+              </div>
+              <div className="space-y-4 border-t border-slate-200 pt-8">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Search size={14}/> Buscar Colaborador (Nombre o DNI):</span>
+                <div className="relative max-w-md">
+                  <input 
+                    type="text" 
+                    placeholder="Ej: Juan Perez o 12345678..." 
+                    value={personSearchTerm} 
+                    onChange={e => setPersonSearchTerm(e.target.value)} 
+                    className="w-full bg-white border-2 border-slate-100 p-4 pl-12 rounded-2xl font-bold text-xs outline-none focus:border-orange-500 shadow-sm"
+                  />
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-11 items-end gap-4 border-t border-slate-200 pt-8">
                 <div className="md:col-span-4 space-y-2">
@@ -1067,10 +1102,27 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <th className="p-6 text-[10px] font-black uppercase text-center w-20">Acción</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {displayLogs.length === 0 ? (
-                    <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>
-                  ) : displayLogs.map(log => {
+                <tbody className="divide-y divide-slate-100 relative">
+                  {isFiltering && (
+                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 flex items-center justify-center">
+                      <div className="flex flex-col items-center gap-4">
+                        <RefreshCw className="text-orange-600 animate-spin" size={40} />
+                        <span className="text-xs font-black text-slate-900 uppercase tracking-widest">Cargando registros...</span>
+                      </div>
+                    </div>
+                  )}
+                  {(() => {
+                    const filteredLogs = displayLogs.filter(log => {
+                      if (!personSearchTerm) return true;
+                      const term = personSearchTerm.toLowerCase();
+                      return log.userName.toLowerCase().includes(term) || log.legajo.toLowerCase().includes(term);
+                    });
+
+                    if (filteredLogs.length === 0) {
+                      return <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>;
+                    }
+
+                    return filteredLogs.map(log => {
                     const durationMins = getShiftDuration(log, displayLogs);
                     const isNoExitCase = noExitLogs.some(n => n.id === log.id);
                     return (
@@ -1119,8 +1171,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                         </td>
                       </tr>
                     );
-                  })}
-                </tbody>
+                  });
+                })()}
+              </tbody>
               </table>
            </div>
         </div>
