@@ -65,6 +65,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
   const [personSearchTerm, setPersonSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
   
   // Estado para Fichada Manual
   const [showManualLogModal, setShowManualLogModal] = useState(false);
@@ -146,12 +148,6 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const { allLocs, users, logsResult } = await Promise.race([dataFetchPromise, timeoutPromise]) as any;
       let logs = logsResult;
 
-      // --- CARGA DE EMERGENCIA ---
-      if (logs.length === 0 && (sDate || eDate)) {
-        console.warn("No se encontraron logs con el filtro actual. Intentando carga total...");
-        logs = await fetchLogs();
-      }
-
       if (logs.length === 0) {
         setFetchError("No se encontraron registros en este rango.");
       }
@@ -160,9 +156,10 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setAllUsers(users);
       setAdminLogs(logs);
       setDisplayLogs(logs);
+      setCurrentPage(1); // Reset a primera página al cargar nuevos datos
       
-      const todayStr = new Date().toDateString();
-      setUserTodayLogs(logs.filter((l: LogEntry) => l.userId === user.id && new Date(l.timestamp).toDateString() === todayStr));
+      const todayStr = toDate(new Date(), { timeZone }).toDateString();
+      setUserTodayLogs(logs.filter((l: LogEntry) => l.userId === user.id && toDate(new Date(l.timestamp), { timeZone }).toDateString() === todayStr));
       
       if (deviceLocId) setDeviceLocation(allLocs.find((l: Location) => l.id === deviceLocId) || null);
     } catch (err: any) {
@@ -180,7 +177,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   }, [loadData, filterStartDate, filterEndDate]);
 
   const applyQuickFilter = (type: 'today' | 'yesterday' | 'week' | 'month') => {
-    const nowInArgentina = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+    const timeZone = 'America/Argentina/Buenos_Aires';
+    const nowInArgentina = toDate(new Date(), { timeZone });
     let start = new Date(nowInArgentina);
     let end = new Date(nowInArgentina);
 
@@ -543,14 +541,18 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const handleSaveManualLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualLogData.userId || !manualLogData.locationId) return alert("Selecciona colaborador y sede.");
+    if ((manualLogData.type === 'CHECK_IN' || manualLogData.type === 'BOTH') && !manualLogData.checkInTime) 
+      return alert("Ingresa la hora de ingreso.");
+    if ((manualLogData.type === 'CHECK_OUT' || manualLogData.type === 'BOTH') && !manualLogData.checkOutTime) 
+      return alert("Ingresa la hora de egreso.");
     setIsSavingManual(true);
     try {
       const targetUser = allUsers.find(u => u.id === manualLogData.userId);
       const targetLoc = locations.find(l => l.id === manualLogData.locationId);
       if (!targetUser || !targetLoc) throw new Error("Datos de usuario o sede inválidos");
 
-      const checkInTS = new Date(`${manualLogData.date}T${manualLogData.checkInTime}:00`).toISOString();
-      const checkOutTS = new Date(`${manualLogData.date}T${manualLogData.checkOutTime}:00`).toISOString();
+      const checkInTS = toDate(`${manualLogData.date}T${manualLogData.checkInTime}:00`, { timeZone: 'America/Argentina/Buenos_Aires' }).toISOString();
+      const checkOutTS = toDate(`${manualLogData.date}T${manualLogData.checkOutTime}:00`, { timeZone: 'America/Argentina/Buenos_Aires' }).toISOString();
 
       if (manualLogData.type === 'CHECK_IN' || manualLogData.type === 'BOTH') {
         const inLog: LogEntry = {
@@ -763,21 +765,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       onChange={e => {
                         const datePart = editingLog.timestamp.split('T')[0];
                         const timePart = e.target.value;
-                        const [localHoursStr, localMinutesStr] = timePart.split(':');
-                        const localHours = parseInt(localHoursStr, 10);
-                        const localMinutes = parseInt(localMinutesStr, 10);
-
-                        const [yearStr, monthStr, dayStr] = datePart.split('-');
-                        const year = parseInt(yearStr, 10);
-                        const month = parseInt(monthStr, 10) - 1; // Month is 0-indexed
-                        const day = parseInt(dayStr, 10);
-
-                        // Argentina is UTC-3. To get UTC hours from local hours, add 3.
-                        const utcHours = localHours + 3;
-                        const utcMinutes = localMinutes;
-
-                        const newUtcDate = new Date(Date.UTC(year, month, day, utcHours, utcMinutes, 0));
-                        setEditingLog({...editingLog, timestamp: newUtcDate.toISOString()});
+                        setEditingLog({...editingLog, timestamp: `${datePart}T${timePart}:00`});
                       }} 
                       className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-xs outline-none" 
                     />
@@ -1087,7 +1075,15 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               </div>
            </div>
 
-           <div className="overflow-x-auto bg-slate-50/50 rounded-[20px] md:rounded-[32px] border border-slate-100">
+           <div className="overflow-x-auto bg-slate-50/50 rounded-[20px] md:rounded-[32px] border border-slate-100 relative">
+              {isFiltering && (
+                <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <RefreshCw className="text-orange-600 animate-spin" size={40} />
+                    <span className="text-xs font-black text-slate-900 uppercase tracking-widest">Cargando registros...</span>
+                  </div>
+                </div>
+              )}
               <table className="w-full text-left min-w-[1200px] border-collapse">
                 <thead>
                   <tr className="bg-[#0f172a] text-white">
@@ -1102,15 +1098,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <th className="p-6 text-[10px] font-black uppercase text-center w-20">Acción</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 relative">
-                  {isFiltering && (
-                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-10 flex items-center justify-center">
-                      <div className="flex flex-col items-center gap-4">
-                        <RefreshCw className="text-orange-600 animate-spin" size={40} />
-                        <span className="text-xs font-black text-slate-900 uppercase tracking-widest">Cargando registros...</span>
-                      </div>
-                    </div>
-                  )}
+                <tbody className="divide-y divide-slate-100">
                   {(() => {
                     const filteredLogs = displayLogs.filter(log => {
                       if (!personSearchTerm) return true;
@@ -1122,7 +1110,11 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       return <tr><td colSpan={9} className="p-32 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic">Sin registros</td></tr>;
                     }
 
-                    return filteredLogs.map(log => {
+                    const totalPages = Math.ceil(filteredLogs.length / pageSize);
+                    const startIndex = (currentPage - 1) * pageSize;
+                    const paginatedLogs = filteredLogs.slice(startIndex, startIndex + pageSize);
+
+                    return paginatedLogs.map(log => {
                     const durationMins = getShiftDuration(log, displayLogs);
                     const isNoExitCase = noExitLogs.some(n => n.id === log.id);
                     return (
@@ -1176,6 +1168,63 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               </tbody>
               </table>
            </div>
+
+           {/* Paginación */}
+           {(() => {
+             const filteredLogs = displayLogs.filter(log => {
+               if (!personSearchTerm) return true;
+               const term = personSearchTerm.toLowerCase();
+               return log.userName.toLowerCase().includes(term) || log.legajo.toLowerCase().includes(term);
+             });
+             const totalPages = Math.ceil(filteredLogs.length / pageSize);
+             if (totalPages <= 1) return null;
+
+             return (
+               <div className="mt-8 flex flex-col md:flex-row items-center justify-between gap-6 p-6 bg-white rounded-[28px] border border-slate-100 shadow-sm">
+                 <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                   Mostrando <span className="text-slate-900">{Math.min(filteredLogs.length, (currentPage - 1) * pageSize + 1)}</span> a <span className="text-slate-900">{Math.min(filteredLogs.length, currentPage * pageSize)}</span> de <span className="text-slate-900">{filteredLogs.length}</span> registros
+                 </div>
+                 <div className="flex items-center gap-2">
+                   <button 
+                     disabled={currentPage === 1} 
+                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                     className="p-3 rounded-xl border-2 border-slate-100 text-slate-400 hover:border-orange-400 hover:text-orange-600 disabled:opacity-30 disabled:hover:border-slate-100 disabled:hover:text-slate-400 transition-all"
+                   >
+                     <RotateCcw size={18} className="rotate-90" />
+                   </button>
+                   
+                   <div className="flex items-center gap-1">
+                     {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                       let pageNum = currentPage;
+                       if (currentPage <= 3) pageNum = i + 1;
+                       else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                       else pageNum = currentPage - 2 + i;
+
+                       if (pageNum <= 0 || pageNum > totalPages) return null;
+
+                       return (
+                         <button 
+                           key={pageNum} 
+                           onClick={() => setCurrentPage(pageNum)}
+                           className={`w-10 h-10 rounded-xl text-[10px] font-black transition-all border-2 ${currentPage === pageNum ? 'bg-orange-600 border-orange-600 text-white shadow-lg shadow-orange-200' : 'bg-white border-slate-100 text-slate-500 hover:border-orange-400'}`}
+                         >
+                           {pageNum}
+                         </button>
+                       );
+                     })}
+                   </div>
+
+                   <button 
+                     disabled={currentPage === totalPages} 
+                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                     className="p-3 rounded-xl border-2 border-slate-100 text-slate-400 hover:border-orange-400 hover:text-orange-600 disabled:opacity-30 disabled:hover:border-slate-100 disabled:hover:text-slate-400 transition-all"
+                   >
+                     <RotateCcw size={18} className="-rotate-90" />
+                   </button>
+                 </div>
+               </div>
+             );
+           })()}
         </div>
         {zoomedImage && (<div className="fixed inset-0 z-[250] bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setZoomedImage(null)}><img src={zoomedImage} className="max-w-full max-h-full rounded-[40px] shadow-2xl border-4 md:border-8 border-white animate-in zoom-in-95" /></div>)}
       </div>
@@ -1258,7 +1307,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           <div className="bg-white rounded-[32px] p-8 border shadow-sm flex-1 overflow-hidden min-h-[350px]">
              <h3 className="font-black text-[10px] uppercase text-slate-400 tracking-widest mb-6 flex justify-between">
                 <span>Historial de Hoy</span>
-                <span className="text-slate-900 font-mono">{new Date().toLocaleDateString('es-AR', {day:'2-digit', month:'short'})}</span>
+                <span className="text-slate-900 font-mono">{new Date().toLocaleDateString('es-AR', {day:'2-digit', month:'short', timeZone: 'America/Argentina/Buenos_Aires'})}</span>
              </h3>
              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
                 {userTodayLogs.length === 0 ? (
@@ -1277,7 +1326,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                           </div>
                       </div>
                       <div className="flex flex-col items-end">
-                        <span className="font-mono font-black text-sm text-slate-900 bg-white px-3 py-1 rounded-lg border shadow-sm">{new Date(l.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                        <span className="font-mono font-black text-sm text-slate-900 bg-white px-3 py-1 rounded-lg border shadow-sm">{new Date(l.timestamp).toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit', timeZone: 'America/Argentina/Buenos_Aires'})}</span>
                         {durationMins !== null && (
                           <span className="text-[9px] font-black text-orange-600 uppercase mt-1">Trabajado: {formatMinutes(durationMins)}</span>
                         )}

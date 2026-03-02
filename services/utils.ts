@@ -1,4 +1,5 @@
 
+import { toDate } from 'date-fns-tz';
 import { supabase } from './supabaseClient';
 import { User, Location, LogEntry, WorkSchedule } from '../types';
 
@@ -76,7 +77,8 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
 
 export const isWithinSchedule = (schedule: WorkSchedule[]): boolean => {
   if (!schedule || schedule.length === 0) return true;
-  const now = new Date();
+  const timeZone = 'America/Argentina/Buenos_Aires';
+  const now = toDate(new Date(), { timeZone });
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const currentDay = days[now.getDay()];
   const currentTime = now.getHours() * 60 + now.getMinutes();
@@ -146,7 +148,7 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
       .from('logs')
       .select('*')
       .order('timestamp', { ascending: false })
-      .limit(200);
+      .limit(1000);
     
     if (error) {
       console.error("Error de Supabase:", error);
