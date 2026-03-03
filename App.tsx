@@ -170,6 +170,19 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     } catch (err: any) {
       console.error("Error al cargar datos del monitor:", err);
       setFetchError(err.message || "Error al conectar con la base de datos.");
+      
+      // FALLBACK MODO OFFLINE
+      // Si falla la carga, intentamos recuperar lo que haya en caché para que la app siga funcionando
+      const cachedLocs = localStorage.getItem('cached_locations');
+      const cachedUsers = localStorage.getItem('cached_users');
+      
+      if (cachedLocs) setLocations(JSON.parse(cachedLocs));
+      if (cachedUsers) setAllUsers(JSON.parse(cachedUsers));
+      
+      if (deviceLocId && cachedLocs) {
+        setDeviceLocation(JSON.parse(cachedLocs).find((l: Location) => l.id === deviceLocId) || null);
+      }
+      
     } finally {
       if (showLoading) setIsFiltering(false);
     }
@@ -177,8 +190,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   useEffect(() => {
     loadData();
-    // Aumentamos el intervalo a 60 segundos para optimizar recursos
-    const interval = setInterval(() => { if (!filterStartDate && !filterEndDate) loadData(); }, 60000);
+    // Aumentamos el intervalo a 5 minutos para reducir drásticamente la carga
+    const interval = setInterval(() => { if (!filterStartDate && !filterEndDate) loadData(); }, 300000);
     return () => clearInterval(interval);
   }, [loadData, filterStartDate, filterEndDate]);
 
@@ -1595,14 +1608,35 @@ const AdminDashboard = () => {
         </div>
       )}
       {!dbHealthy && (
-        <div className="bg-amber-50 border border-amber-200 p-6 rounded-[24px] flex flex-col md:flex-row items-center gap-4 animate-bounce shadow-xl">
-           <Activity className="text-amber-600 shrink-0" size={32}/>
+        <div className="bg-rose-50 border border-rose-200 p-6 rounded-[24px] flex flex-col md:flex-row items-center gap-4 animate-bounce shadow-xl mb-6">
+           <AlertTriangle className="text-rose-600 shrink-0" size={32}/>
            <div className="flex-1 text-center md:text-left">
-              <p className="font-black text-[10px] uppercase tracking-widest text-amber-700">Actualización de Base de Datos Necesaria</p>
-              <p className="text-xs font-bold text-amber-900 leading-tight">Ejecuta el script SQL incluido para habilitar estados y sedes asignadas.</p>
+              <p className="font-black text-[10px] uppercase tracking-widest text-rose-700">ERROR DE CONEXIÓN CRÍTICO</p>
+              <p className="text-xs font-bold text-rose-900 leading-tight">
+                La base de datos no responde (TIMEOUT). Es muy probable que el proyecto de Supabase esté 
+                <span className="underline decoration-wavy decoration-rose-500 mx-1">PAUSADO</span> 
+                por inactividad.
+              </p>
+              <p className="text-[10px] mt-1 text-rose-800">
+                Solución: Ingresa a tu panel de Supabase y haz clic en "Restore Project".
+              </p>
            </div>
+           <button onClick={() => window.location.reload()} className="bg-rose-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-700 transition-colors">
+             Reintentar
+           </button>
         </div>
       )}
+      
+      {/* Banner de Optimización de Base de Datos */}
+      <div className="bg-blue-50 border border-blue-200 p-4 rounded-[24px] flex flex-col md:flex-row items-center gap-4 shadow-sm mb-6">
+         <Activity className="text-blue-600 shrink-0" size={24}/>
+         <div className="flex-1 text-center md:text-left">
+            <p className="font-black text-[10px] uppercase tracking-widest text-blue-700">Optimización Recomendada</p>
+            <p className="text-xs font-bold text-blue-900 leading-tight">
+              Para reducir el consumo de CPU y evitar bloqueos, ejecuta el script de optimización SQL.
+            </p>
+         </div>
+      </div>
 
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="text-center md:text-left">
@@ -2120,6 +2154,8 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
       console.error("Error en handleLogin:", err);
       if (err.message === "CUENTA DESACTIVADA") {
         setError("CUENTA DESACTIVADA");
+      } else if (err.message?.includes("TIMEOUT") || err.message?.includes("base de datos")) {
+        setError("ERROR CRÍTICO: La base de datos no responde. Es probable que el proyecto Supabase esté PAUSADO. Contacta al administrador.");
       } else {
         setError('ERROR DE CONEXIÓN: ' + (err.message || 'Desconocido')); 
       }

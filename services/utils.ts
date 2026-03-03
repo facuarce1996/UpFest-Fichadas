@@ -94,35 +94,56 @@ export const isWithinSchedule = (schedule: WorkSchedule[]): boolean => {
 };
 
 export const fetchUsers = async (): Promise<User[]> => {
-  const { data, error } = await supabase.from('users').select('*').order('name');
-  if (error) throw error;
-  return (data || []).map(u => ({
-    id: u.id,
-    dni: u.dni,
-    name: u.name,
-    role: u.role,
-    legajo: u.legajo,
-    password: u.password,
-    dressCode: u.dress_code,
-    photoRef: u.reference_image,
-    schedule: u.schedule || [],
-    assignedLocations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
-    isActive: u.is_active
-  }));
+  try {
+    const { data, error } = await supabase.from('users').select('*').order('name');
+    if (error) throw error;
+    
+    const users = (data || []).map(u => ({
+      id: u.id,
+      dni: u.dni,
+      name: u.name,
+      role: u.role,
+      legajo: u.legajo,
+      password: u.password,
+      dressCode: u.dress_code,
+      photoRef: u.reference_image,
+      schedule: u.schedule || [],
+      assignedLocations: Array.isArray(u.assigned_locations) ? u.assigned_locations : [],
+      isActive: u.is_active
+    }));
+
+    // Cache users for offline mode
+    localStorage.setItem('cached_users', JSON.stringify(users));
+    return users;
+  } catch (err) {
+    console.warn("Error fetching users, trying cache:", err);
+    const cached = localStorage.getItem('cached_users');
+    if (cached) return JSON.parse(cached);
+    throw err;
+  }
 };
 
 export const fetchLocations = async (): Promise<Location[]> => {
-  const { data, error } = await supabase.from('locations').select('*').order('name');
-  if (error) throw error;
-  return (data || []).map(l => ({
-    id: l.id,
-    name: l.name,
-    address: l.address,
-    city: l.city,
-    lat: l.lat,
-    lng: l.lng,
-    radiusMeters: l.radius_meters
-  }));
+  try {
+    const { data, error } = await supabase.from('locations').select('*').order('name');
+    if (error) throw error;
+    const locs = (data || []).map(l => ({
+      id: l.id,
+      name: l.name,
+      address: l.address,
+      city: l.city,
+      lat: l.lat,
+      lng: l.lng,
+      radiusMeters: l.radius_meters
+    }));
+    localStorage.setItem('cached_locations', JSON.stringify(locs));
+    return locs;
+  } catch (err) {
+    console.warn("Error fetching locations, trying cache:", err);
+    const cached = localStorage.getItem('cached_locations');
+    if (cached) return JSON.parse(cached);
+    throw err;
+  }
 };
 
 const mapLog = (l: any): LogEntry => ({
@@ -155,7 +176,7 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
       .select('*')
       .gte('timestamp', rangeDate.toISOString())
       .order('timestamp', { ascending: false })
-      .limit(1000);
+      .limit(200); // Reducido de 1000 a 200 para aliviar carga
   };
 
   try {
@@ -213,7 +234,7 @@ export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogE
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
       .order('timestamp', { ascending: false })
-      .limit(1000);
+      .limit(200); // Reducido de 1000 a 200 para aliviar carga
     
     if (error) {
       console.error("Error de Supabase en rango:", error);
@@ -235,25 +256,34 @@ function uuidv4() {
 
 export const addLog = async (log: LogEntry): Promise<string> => {
   const newId = uuidv4();
+  const logToSave = { ...log, id: newId };
 
-  const { error } = await supabase.from('logs').insert([{
-    id: newId,
-    user_id: log.userId,
-    user_name: log.userName,
-    legajo: log.legajo,
-    timestamp: log.timestamp || new Date().toISOString(),
-    type: log.type,
-    location_id: log.locationId,
-    location_name: log.locationName,
-    location_status: log.locationStatus,
-    dress_code_status: log.dressCodeStatus,
-    identity_status: log.identityStatus,
-    schedule_status: log.scheduleStatus,
-    photo_evidence: log.photoEvidence,
-    ai_feedback: log.aiFeedback
-  }]);
-  if (error) throw error;
-  return newId;
+  try {
+    const { error } = await supabase.from('logs').insert([{
+      id: newId,
+      user_id: log.userId,
+      user_name: log.userName,
+      legajo: log.legajo,
+      timestamp: log.timestamp || new Date().toISOString(),
+      type: log.type,
+      location_id: log.locationId,
+      location_name: log.locationName,
+      location_status: log.locationStatus,
+      dress_code_status: log.dressCodeStatus,
+      identity_status: log.identityStatus,
+      schedule_status: log.scheduleStatus,
+      photo_evidence: log.photoEvidence,
+      ai_feedback: log.aiFeedback
+    }]);
+    if (error) throw error;
+    return newId;
+  } catch (err) {
+    console.error("Error guardando log en DB, guardando localmente:", err);
+    const pendingLogs = JSON.parse(localStorage.getItem('pending_logs') || '[]');
+    pendingLogs.push(logToSave);
+    localStorage.setItem('pending_logs', JSON.stringify(pendingLogs));
+    return newId;
+  }
 };
 
 export const saveUser = async (user: User): Promise<void> => {
@@ -302,9 +332,9 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
     try {
       console.log(`Intento ${attempt} de ${MAX_RETRIES}...`);
       
-      // Timeout de 20 segundos por intento
+      // Timeout de 10 segundos por intento
       const timeoutPromise = new Promise<null>((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT_DB")), 20000)
+        setTimeout(() => reject(new Error("TIMEOUT_DB")), 10000)
       );
 
       const authPromise = (async () => {
@@ -318,7 +348,7 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
       const data = await Promise.race([authPromise, timeoutPromise]);
       
       if (!data) {
-        console.log("Usuario no encontrado");
+        console.log("Usuario no encontrado en DB");
         return null;
       }
       
@@ -328,7 +358,7 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
       }
       
       console.log("Autenticación exitosa para:", data.name);
-      return {
+      const user = {
         id: data.id,
         dni: data.dni,
         name: data.name,
@@ -341,6 +371,17 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
         assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
         isActive: data.is_active
       };
+      
+      // Update cache for this user
+      const cached = localStorage.getItem('cached_users');
+      let users = cached ? JSON.parse(cached) : [];
+      const index = users.findIndex((u: User) => u.dni === dni);
+      if (index >= 0) users[index] = user;
+      else users.push(user);
+      localStorage.setItem('cached_users', JSON.stringify(users));
+      
+      return user;
+
     } catch (err: any) {
       console.error(`Error en intento ${attempt}:`, err);
       lastError = err;
@@ -350,8 +391,20 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
     }
   }
 
+  // Fallback to cache if DB fails
+  console.warn("DB falló, intentando autenticación offline...");
+  const cached = localStorage.getItem('cached_users');
+  if (cached) {
+    const users = JSON.parse(cached);
+    const user = users.find((u: User) => u.dni === dni);
+    if (user) {
+      console.log("Usuario autenticado desde caché offline:", user.name);
+      return user;
+    }
+  }
+
   if (lastError?.message === "TIMEOUT_DB") {
-    throw new Error("La base de datos está lenta. Intenta de nuevo.");
+    throw new Error("La base de datos no responde y no hay datos en caché para este usuario.");
   }
   throw lastError;
 };

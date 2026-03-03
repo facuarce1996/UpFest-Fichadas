@@ -108,7 +108,7 @@ export const analyzeCheckIn = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash-latest',
       contents: { parts },
       config: {
         responseMimeType: "application/json",
@@ -130,7 +130,7 @@ export const analyzeCheckIn = async (
   } catch (error: any) {
     console.error("IA falló — se guarda igual", error);
 
-    let description = "IA no disponible — validación omitida";
+    let description = `IA no disponible (${error.message || 'Error desconocido'}) — validación omitida`;
     
     // Detectar error de cuota excedida (429)
     if (error.message?.includes("429") || error.message?.includes("Quota exceeded") || error.status === 429) {
