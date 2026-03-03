@@ -3,7 +3,7 @@ import { ValidationResult } from "../types";
 
 
 // 🔴 SWITCH GLOBAL — CAMBIAR A true CUANDO QUIERAS REACTIVAR IA
-const IA_ENABLED = false;
+const IA_ENABLED = true;
 
 
 const responseSchema = {
@@ -69,7 +69,7 @@ export const analyzeCheckIn = async (
 
   // 🔽 TU CÓDIGO ORIGINAL — NO TOCAR
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
 
   let currentPhotoData = '';
   if (currentPhotoBase64.startsWith('http')) {
@@ -119,9 +119,7 @@ export const analyzeCheckIn = async (
     const text = response.text;
     if (!text) throw new Error("La IA no devolvió una respuesta válida.");
 
-    const result = JSON.parse(
-      text.replace(/```json/g, '').replace(/```/g, '').trim()
-    );
+    const result = JSON.parse(text.trim());
 
     return {
       identityMatch: result.identityMatch ?? true,
