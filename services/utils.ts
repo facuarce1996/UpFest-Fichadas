@@ -332,9 +332,9 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
     try {
       console.log(`Intento ${attempt} de ${MAX_RETRIES}...`);
       
-      // Timeout de 10 segundos por intento
+      // Timeout de 30 segundos por intento (aumentado por problemas de disco)
       const timeoutPromise = new Promise<null>((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT_DB")), 10000)
+        setTimeout(() => reject(new Error("TIMEOUT_DB")), 30000)
       );
 
       const authPromise = (async () => {
@@ -473,14 +473,14 @@ export const deleteLog = async (id: string): Promise<void> => {
 export const checkDatabaseHealth = async (): Promise<boolean> => {
   try {
     const timeoutPromise = new Promise<null>((_, reject) => 
-      setTimeout(() => reject(new Error("TIMEOUT")), 15000)
+      setTimeout(() => reject(new Error("TIMEOUT")), 30000)
     );
     const healthPromise = supabase.from('users').select('count', { count: 'exact', head: true });
     
     const { error } = await Promise.race([healthPromise, timeoutPromise]) as any;
     return !error;
   } catch (e) {
-    console.error("Health check falló:", e);
+    console.warn("Health check warning (posible lentitud):", e);
     return false;
   }
 };

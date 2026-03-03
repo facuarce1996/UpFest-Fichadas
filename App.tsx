@@ -1626,17 +1626,6 @@ const AdminDashboard = () => {
            </button>
         </div>
       )}
-      
-      {/* Banner de Optimización de Base de Datos */}
-      <div className="bg-blue-50 border border-blue-200 p-4 rounded-[24px] flex flex-col md:flex-row items-center gap-4 shadow-sm mb-6">
-         <Activity className="text-blue-600 shrink-0" size={24}/>
-         <div className="flex-1 text-center md:text-left">
-            <p className="font-black text-[10px] uppercase tracking-widest text-blue-700">Optimización Recomendada</p>
-            <p className="text-xs font-bold text-blue-900 leading-tight">
-              Para reducir el consumo de CPU y evitar bloqueos, ejecuta el script de optimización SQL.
-            </p>
-         </div>
-      </div>
 
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div className="text-center md:text-left">
