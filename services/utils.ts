@@ -293,22 +293,56 @@ export const deleteUser = async (id: string): Promise<void> => {
 };
 
 export const authenticateUser = async (dni: string): Promise<User | null> => {
-  const { data, error } = await supabase.from('users').select('*').eq('dni', dni).single();
-  if (error) return null;
-  if (!data.is_active) throw new Error("CUENTA DESACTIVADA");
-  return {
-    id: data.id,
-    dni: data.dni,
-    name: data.name,
-    role: data.role,
-    legajo: data.legajo,
-    password: data.password,
-    dressCode: data.dress_code,
-    photoRef: data.reference_image,
-    schedule: data.schedule || [],
-    assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
-    isActive: data.is_active
-  };
+  console.log("Iniciando autenticación para DNI:", dni);
+  
+  // Timeout de 10 segundos para evitar que la UI quede colgada si Supabase no responde
+  const timeoutPromise = new Promise<null>((_, reject) => 
+    setTimeout(() => reject(new Error("TIMEOUT_DB")), 10000)
+  );
+
+  try {
+    const authPromise = (async () => {
+      const { data, error } = await supabase.from('users').select('*').eq('dni', dni).maybeSingle();
+      if (error) {
+        console.error("Error de Supabase en login:", error);
+        return null;
+      }
+      return data;
+    })();
+
+    const data = await Promise.race([authPromise, timeoutPromise]);
+    
+    if (!data) {
+      console.log("Usuario no encontrado o error en DB");
+      return null;
+    }
+    
+    if (!data.is_active) {
+      console.log("Usuario desactivado");
+      throw new Error("CUENTA DESACTIVADA");
+    }
+    
+    console.log("Autenticación exitosa para:", data.name);
+    return {
+      id: data.id,
+      dni: data.dni,
+      name: data.name,
+      role: data.role,
+      legajo: data.legajo,
+      password: data.password,
+      dressCode: data.dress_code,
+      photoRef: data.reference_image,
+      schedule: data.schedule || [],
+      assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
+      isActive: data.is_active
+    };
+  } catch (err: any) {
+    console.error("Excepción en authenticateUser:", err);
+    if (err.message === "TIMEOUT_DB") {
+      throw new Error("La base de datos no responde. Reintenta en unos segundos.");
+    }
+    throw err;
+  }
 };
 
 export const saveLocation = async (loc: Location): Promise<void> => {

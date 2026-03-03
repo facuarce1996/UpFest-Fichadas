@@ -2069,7 +2069,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('clock');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  useEffect(() => { fetchCompanyLogo().then(setLogoUrl).catch(() => {}); }, []);
+  useEffect(() => { 
+    console.log("App iniciada. Verificando conexión con Supabase...");
+    checkDatabaseHealth().then(healthy => {
+      console.log("Estado inicial de la base de datos:", healthy ? "CONECTADA" : "DESCONECTADA");
+    }).catch(err => {
+      console.error("Error en health check inicial:", err);
+    });
+    fetchCompanyLogo().then(setLogoUrl).catch(() => {}); 
+  }, []);
   if (!currentUser) return <LoginView onLogin={(u: User) => { setCurrentUser(u); setActiveTab('clock'); }} logoUrl={logoUrl} />;
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row overflow-hidden text-slate-900">
@@ -2101,15 +2109,18 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
     e.preventDefault(); 
     setLoading(true); 
     setError('');
+    console.log("Intento de login con DNI:", dni);
     try { 
       const user = await authenticateUser(dni); 
+      console.log("Respuesta de autenticación:", user);
       if (user) onLogin(user); 
       else setError('DNI NO ENCONTRADO'); 
     } catch (err: any) { 
+      console.error("Error en handleLogin:", err);
       if (err.message === "CUENTA DESACTIVADA") {
         setError("CUENTA DESACTIVADA");
       } else {
-        setError('ERROR DE CONEXIÓN'); 
+        setError('ERROR DE CONEXIÓN: ' + (err.message || 'Desconocido')); 
       }
     } 
     finally { setLoading(false); } 
