@@ -4,7 +4,7 @@ import {
   Role, Location, User, LogEntry, WorkSchedule, Incident, ValidationResult, DEFAULT_ROLES, DAYS_OF_WEEK
 } from './types';
 import { 
-  getCurrentPosition, calculateDistance, isWithinSchedule, 
+  getCurrentPosition, calculateDistance, isWithinSchedule, uploadImage,
   fetchUsers, fetchLocations, fetchLogs, fetchTodayLogs, fetchLogsByDateRange, addLog, saveUser, deleteUser,
   authenticateUser, saveLocation, deleteLocation, fetchCompanyLogo, saveCompanyLogo,
   fetchLastLog, updateLog, deleteLog, checkDatabaseHealth
@@ -380,65 +380,103 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const handleClockAction = async () => {
     if (!photo) return;
     setLoading(true);
-    setLoadingMsg('Validando ubicación...');
+    setLoadingMsg('Procesando...');
+    
     try {
+      // 1. Ejecutar GPS y Búsqueda de último log en paralelo con timeout para GPS
+      const gpsPromise = new Promise<GeolocationPosition | null>((resolve) => {
+        const timeout = setTimeout(() => resolve(null), 3500); // 3.5s max para GPS
+        getCurrentPosition().then(pos => {
+          clearTimeout(timeout);
+          resolve(pos);
+        }).catch(() => {
+          clearTimeout(timeout);
+          resolve(null);
+        });
+      });
+
+      const [pos, lastLog] = await Promise.all([
+        gpsPromise,
+        fetchLastLog(user.id)
+      ]);
+
+      // 2. Determinar estado de ubicación
       let locStatus: 'VALID' | 'INVALID' | 'SKIPPED' = 'SKIPPED';
-      try {
-        const pos = await getCurrentPosition();
-        if (deviceLocation) {
-          const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, deviceLocation.lat, deviceLocation.lng);
-          locStatus = dist <= deviceLocation.radiusMeters ? 'VALID' : 'INVALID';
-        }
-      } catch (e) { console.warn("Geo error", e); }
-      const lastLog = await fetchLastLog(user.id);
+      if (pos && deviceLocation) {
+        const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, deviceLocation.lat, deviceLocation.lng);
+        locStatus = dist <= deviceLocation.radiusMeters ? 'VALID' : 'INVALID';
+      }
+
+      // 3. Determinar tipo de fichada
       let type: 'CHECK_IN' | 'CHECK_OUT' = 'CHECK_IN';
       if (lastLog && lastLog.type === 'CHECK_IN') {
         const diffHours = (new Date().getTime() - new Date(lastLog.timestamp).getTime()) / 3600000;
         if (diffHours < 20) type = 'CHECK_OUT';
       }
 
+      // 4. Crear log preliminar (sin subir foto aún para que sea instantáneo)
       const preliminaryLog: Omit<LogEntry, 'id'> = {
         userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
         locationId: deviceLocation?.id || 'manual', locationName: deviceLocation?.name || 'Manual', locationStatus: locStatus,
         dressCodeStatus: 'PENDING', identityStatus: 'PENDING',
-        photoEvidence: photo, aiFeedback: 'IA Analizando...', scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
+        photoEvidence: '', // Se subirá en segundo plano
+        aiFeedback: 'Procesando evidencia...', scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
       };
 
       const savedLogId = await addLog(preliminaryLog as LogEntry);
+      
+      // 5. Feedback instantáneo al usuario
       setPhoto(null);
       loadData();
       setSuccessAction({ type: type === 'CHECK_IN' ? 'INGRESO' : 'EGRESO', countdown: 7 });
       setLoading(false);
 
-      // --- Análisis Asíncrono --- 
+      // --- Tareas en Segundo Plano (Subida de imagen + IA) --- 
       (async () => {
         try {
+          // A. Subir imagen
+          const timestamp = new Date().getTime();
+          const fileName = `logs/${user.id}_${timestamp}.jpg`;
+          const finalPhotoUrl = await uploadImage(photo, 'fichadas', fileName);
+
+          // B. Análisis IA
           const iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
+          
+          // C. Actualizar log con URL de foto y resultados IA
           const finalLog: LogEntry = {
             ...preliminaryLog,
             id: savedLogId,
+            photoEvidence: finalPhotoUrl,
             dressCodeStatus: iaResult.dressCodeMatches ? 'PASS' : 'FAIL',
             identityStatus: iaResult.identityMatch ? 'MATCH' : 'NO_MATCH',
             aiFeedback: iaResult.description,
           };
           await updateLog(finalLog);
-          loadData(); // Recargar para que el monitor vea el cambio
-        } catch (err) {
-          console.error("Error en análisis asíncrono:", err);
-          const errorLog: LogEntry = {
-             ...preliminaryLog,
-             id: savedLogId,
-             dressCodeStatus: 'FAIL',
-             identityStatus: 'NO_MATCH', // Changed from 'FAIL' to 'NO_MATCH' to match the type
-             aiFeedback: 'Error de la IA: ' + (err instanceof Error ? err.message : 'Error desconocido'),
-          };
-          await updateLog(errorLog);
           loadData();
+        } catch (err) {
+          console.error("Error en procesamiento asíncrono:", err);
+          // Intentar al menos guardar la foto si la IA falló
+          try {
+            const timestamp = new Date().getTime();
+            const fileName = `logs/${user.id}_${timestamp}.jpg`;
+            const finalPhotoUrl = await uploadImage(photo, 'fichadas', fileName);
+            await updateLog({
+              ...preliminaryLog,
+              id: savedLogId,
+              photoEvidence: finalPhotoUrl,
+              dressCodeStatus: 'FAIL',
+              identityStatus: 'NO_MATCH',
+              aiFeedback: 'Error en análisis: ' + (err instanceof Error ? err.message : 'Error desconocido'),
+            } as LogEntry);
+            loadData();
+          } catch (e) {
+            console.error("Fallo crítico en segundo plano:", e);
+          }
         }
       })();
     } catch (error: any) { 
-      console.error("Error en validación:", error);
-      alert("Error en validación: " + (error.message || "Error desconocido"));
+      console.error("Error en fichada:", error);
+      alert("Error al registrar: " + (error.message || "Error desconocido"));
       if (isAIStudio) await handleOpenApiKeyDialog();
     } finally { setLoading(false); setLoadingMsg(''); }
   };

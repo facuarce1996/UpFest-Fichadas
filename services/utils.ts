@@ -234,14 +234,7 @@ function uuidv4() {
 }
 
 export const addLog = async (log: LogEntry): Promise<string> => {
-  let finalPhotoUrl = log.photoEvidence;
   const newId = uuidv4();
-
-  if (log.photoEvidence && log.photoEvidence.startsWith('data:image')) {
-    const timestamp = new Date().getTime();
-    const fileName = `logs/${log.userId}_${timestamp}.jpg`;
-    finalPhotoUrl = await uploadImage(log.photoEvidence, 'fichadas', fileName);
-  }
 
   const { error } = await supabase.from('logs').insert([{
     id: newId,
@@ -256,7 +249,7 @@ export const addLog = async (log: LogEntry): Promise<string> => {
     dress_code_status: log.dressCodeStatus,
     identity_status: log.identityStatus,
     schedule_status: log.scheduleStatus,
-    photo_evidence: finalPhotoUrl,
+    photo_evidence: log.photoEvidence,
     ai_feedback: log.aiFeedback
   }]);
   if (error) throw error;
