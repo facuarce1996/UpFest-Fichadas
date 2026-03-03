@@ -122,7 +122,27 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     const deviceLocId = localStorage.getItem('upfest_terminal_location_id');
     const timeZone = 'America/Argentina/Buenos_Aires';
 
-    console.log(`Cargando datos: ${sDate} a ${eDate} (showLoading: ${showLoading})`);
+    // --- OPTIMIZACIÓN: Carga Inmediata desde Caché (Instantáneo) ---
+    if (!showLoading && !adminLogs.length) {
+       const cachedLocs = localStorage.getItem('cached_locations');
+       const cachedLogs = localStorage.getItem('cached_logs_today');
+       
+       if (cachedLocs) {
+          const parsedLocs = JSON.parse(cachedLocs);
+          setLocations(parsedLocs);
+          if (deviceLocId) setDeviceLocation(parsedLocs.find((l: Location) => l.id === deviceLocId) || null);
+       }
+       if (cachedLogs) {
+          const parsedLogs = JSON.parse(cachedLogs);
+          const todayStr = toDate(new Date(), { timeZone }).toDateString();
+          // Solo usar caché si es del día de hoy
+          if (parsedLogs.length > 0 && new Date(parsedLogs[0].timestamp).toDateString() === new Date().toDateString()) {
+             setUserTodayLogs(parsedLogs.filter((l: LogEntry) => l.userId === user.id));
+          }
+       }
+    }
+
+    console.log(`Cargando datos frescos: ${sDate} a ${eDate}`);
 
     try {
       setFetchError(null);
@@ -161,18 +181,21 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setAllUsers(users);
       setAdminLogs(logs);
       setDisplayLogs(logs);
-      setCurrentPage(1); // Reset a primera página al cargar nuevos datos
+      setCurrentPage(1); 
       
       const todayStr = toDate(new Date(), { timeZone }).toDateString();
-      setUserTodayLogs(logs.filter((l: LogEntry) => l.userId === user.id && toDate(new Date(l.timestamp), { timeZone }).toDateString() === todayStr));
+      const todayLogs = logs.filter((l: LogEntry) => l.userId === user.id && toDate(new Date(l.timestamp), { timeZone }).toDateString() === todayStr);
+      setUserTodayLogs(todayLogs);
+      
+      // Guardar caché de logs de hoy para la próxima carga instantánea
+      localStorage.setItem('cached_logs_today', JSON.stringify(todayLogs));
       
       if (deviceLocId) setDeviceLocation(allLocs.find((l: Location) => l.id === deviceLocId) || null);
     } catch (err: any) {
       console.error("Error al cargar datos del monitor:", err);
       setFetchError(err.message || "Error al conectar con la base de datos.");
       
-      // FALLBACK MODO OFFLINE
-      // Si falla la carga, intentamos recuperar lo que haya en caché para que la app siga funcionando
+      // FALLBACK MODO OFFLINE COMPLETO
       const cachedLocs = localStorage.getItem('cached_locations');
       const cachedUsers = localStorage.getItem('cached_users');
       
