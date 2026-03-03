@@ -397,6 +397,28 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     setLoadingMsg('Procesando...');
     
     try {
+      // 0. Intentar recuperar ubicación si se perdió (Robustez)
+      let currentDeviceLocation = deviceLocation;
+      if (!currentDeviceLocation) {
+         const storedId = localStorage.getItem('upfest_terminal_location_id');
+         if (storedId) {
+            // Buscar en locations cargadas
+            currentDeviceLocation = locations.find(l => l.id === storedId) || null;
+            // Si no está en locations, intentar buscar en caché
+            if (!currentDeviceLocation) {
+               const cachedLocs = localStorage.getItem('cached_locations');
+               if (cachedLocs) {
+                  const parsedLocs = JSON.parse(cachedLocs);
+                  currentDeviceLocation = parsedLocs.find((l: Location) => l.id === storedId) || null;
+               }
+            }
+            if (currentDeviceLocation) {
+               setDeviceLocation(currentDeviceLocation);
+               console.log("Ubicación recuperada para fichada:", currentDeviceLocation.name);
+            }
+         }
+      }
+
       // 1. Ejecutar GPS y Búsqueda de último log en paralelo con timeout para GPS
       const gpsPromise = new Promise<GeolocationPosition | null>((resolve) => {
         const timeout = setTimeout(() => resolve(null), 3500); // 3.5s max para GPS
@@ -416,9 +438,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
       // 2. Determinar estado de ubicación
       let locStatus: 'VALID' | 'INVALID' | 'SKIPPED' = 'SKIPPED';
-      if (pos && deviceLocation) {
-        const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, deviceLocation.lat, deviceLocation.lng);
-        locStatus = dist <= deviceLocation.radiusMeters ? 'VALID' : 'INVALID';
+      if (pos && currentDeviceLocation) {
+        const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, currentDeviceLocation.lat, currentDeviceLocation.lng);
+        locStatus = dist <= currentDeviceLocation.radiusMeters ? 'VALID' : 'INVALID';
       }
 
       // 3. Determinar tipo de fichada
@@ -431,7 +453,7 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       // 4. Crear log preliminar (sin subir foto aún para que sea instantáneo)
       const preliminaryLog: Omit<LogEntry, 'id'> = {
         userId: user.id, userName: user.name, legajo: user.legajo, timestamp: new Date().toISOString(), type,
-        locationId: deviceLocation?.id || 'manual', locationName: deviceLocation?.name || 'Manual', locationStatus: locStatus,
+        locationId: currentDeviceLocation?.id || 'manual', locationName: currentDeviceLocation?.name || 'Manual', locationStatus: locStatus,
         dressCodeStatus: 'PENDING', identityStatus: 'PENDING',
         photoEvidence: '', // Se subirá en segundo plano
         aiFeedback: 'Procesando evidencia...', scheduleStatus: isWithinSchedule(user.schedule) ? 'ON_TIME' : 'OFF_SCHEDULE'
@@ -1316,7 +1338,11 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         <div className="bg-white rounded-[32px] md:rounded-[40px] p-8 border shadow-xl flex flex-col min-h-[500px]">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-black uppercase tracking-tighter">Fichador</h2>
-            {deviceLocation && <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{deviceLocation.name}</span>}
+            {deviceLocation ? (
+              <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{deviceLocation.name}</span>
+            ) : (
+              <span className="bg-rose-100 text-rose-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">⚠️ NO VINCULADA (Manual)</span>
+            )}
           </div>
           <div className="w-full h-auto aspect-square min-h-[300px] md:min-h-[350px] rounded-[32px] overflow-hidden bg-slate-900 mb-6 relative border-4 border-slate-100 shadow-inner flex items-center justify-center">
              {!cameraActive && !photo && (
