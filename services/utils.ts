@@ -143,12 +143,33 @@ const mapLog = (l: any): LogEntry => ({
 });
 
 export const fetchLogs = async (): Promise<LogEntry[]> => {
-  try {
-    const { data, error, status } = await supabase
+  const timeZone = 'America/Argentina/Buenos_Aires';
+  
+  const tryFetch = async (days: number) => {
+    const rangeDate = toDate(new Date(), { timeZone });
+    rangeDate.setDate(rangeDate.getDate() - days);
+    rangeDate.setHours(0, 0, 0, 0);
+
+    return await supabase
       .from('logs')
       .select('*')
+      .gte('timestamp', rangeDate.toISOString())
       .order('timestamp', { ascending: false })
       .limit(1000);
+  };
+
+  try {
+    // Intentar primero con 7 días
+    let { data, error, status } = await tryFetch(7);
+    
+    // Si falla por timeout, intentar con un rango más corto (3 días)
+    if (error && (error.message.includes('timeout') || status === 500)) {
+      console.warn("Fetch de 7 días falló por timeout, intentando con 3 días...");
+      const retry = await tryFetch(3);
+      data = retry.data;
+      error = retry.error;
+      status = retry.status;
+    }
     
     if (error) {
       console.error("Error de Supabase:", error);
@@ -156,7 +177,7 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
     }
 
     if (!data || data.length === 0) {
-      console.warn("Supabase devolvió 0 registros. Verifica las políticas RLS en la tabla 'logs'.");
+      console.warn("Supabase devolvió 0 registros.");
     }
 
     return (data || []).map(mapLog);

@@ -136,9 +136,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           ? fetchLogsByDateRange(toDate(`${sDate}T00:00:00`, { timeZone }), toDate(`${eDate}T23:59:59`, { timeZone }))
           : fetchLogs();
 
+        // Solo cargar sedes y usuarios si no los tenemos o si es una carga forzada (showLoading)
+        const fetchLocs = (locations.length === 0 || showLoading) ? fetchLocations() : Promise.resolve(locations);
+        const fetchUsrs = (allUsers.length === 0 || showLoading) ? fetchUsers() : Promise.resolve(allUsers);
+
         const [allLocs, users, logsResult] = await Promise.all([
-          fetchLocations(),
-          fetchUsers(),
+          fetchLocs,
+          fetchUsrs,
           logsPromise
         ]);
         
@@ -172,7 +176,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(() => { if (!filterStartDate && !filterEndDate) loadData(); }, 30000);
+    // Aumentamos el intervalo a 60 segundos para optimizar recursos
+    const interval = setInterval(() => { if (!filterStartDate && !filterEndDate) loadData(); }, 60000);
     return () => clearInterval(interval);
   }, [loadData, filterStartDate, filterEndDate]);
 
@@ -1021,8 +1026,16 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
              <div className="mb-8 p-6 bg-rose-50 border border-rose-200 rounded-[28px] flex items-center gap-4 animate-in slide-in-from-top-4">
                 <AlertTriangle className="text-rose-600 shrink-0" size={24}/>
                 <div className="flex-1">
-                  <p className="text-xs font-black text-rose-900 uppercase tracking-wider">Atención: {fetchError}</p>
-                  <p className="text-[10px] text-rose-600 mt-1">Si ves datos en Supabase pero no aquí, es probable que debas configurar las políticas RLS.</p>
+                  <p className="text-xs font-black text-rose-900 uppercase tracking-wider">
+                    {fetchError.includes('timeout') || fetchError.includes('statement timeout') 
+                      ? 'La base de datos está tardando en responder' 
+                      : 'Hubo un problema al cargar los datos'}
+                  </p>
+                  <p className="text-[10px] text-rose-600 mt-1">
+                    {fetchError.includes('timeout') || fetchError.includes('statement timeout')
+                      ? 'Estamos intentando recuperar la información. Por favor, intenta refrescar en unos segundos.'
+                      : 'Si el problema persiste, contacta al soporte técnico.'}
+                  </p>
                 </div>
                 <button onClick={() => loadData(true)} className="px-4 py-2 bg-rose-600 text-white text-[10px] font-black uppercase rounded-xl hover:bg-rose-700 transition-all">Reintentar</button>
              </div>

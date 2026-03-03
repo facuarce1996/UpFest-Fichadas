@@ -117,6 +117,7 @@ export const analyzeCheckIn = async (
     });
 
     const text = response.text;
+    if (!text) throw new Error("La IA no devolvió una respuesta válida.");
 
     const result = JSON.parse(
       text.replace(/```json/g, '').replace(/```/g, '').trim()
