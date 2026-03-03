@@ -108,7 +108,7 @@ export const analyzeCheckIn = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-latest',
+      model: 'gemini-2.0-flash-exp',
       contents: { parts },
       config: {
         responseMimeType: "application/json",
