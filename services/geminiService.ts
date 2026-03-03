@@ -108,7 +108,7 @@ export const analyzeCheckIn = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-1.5-flash',
       contents: { parts },
       config: {
         responseMimeType: "application/json",
@@ -127,14 +127,21 @@ export const analyzeCheckIn = async (
       description: result.description ?? "Validación completada."
     };
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("IA falló — se guarda igual", error);
+
+    let description = "IA no disponible — validación omitida";
+    
+    // Detectar error de cuota excedida (429)
+    if (error.message?.includes("429") || error.message?.includes("Quota exceeded") || error.status === 429) {
+      description = "Límite diario de IA alcanzado. Intente mañana.";
+    }
 
     // 🔴 FALLBACK AUTOMÁTICO
     return {
       identityMatch: true,
       dressCodeMatches: true,
-      description: "IA no disponible — validación omitida"
+      description: description
     };
   }
 };

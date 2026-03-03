@@ -302,7 +302,9 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
 
   try {
     const authPromise = (async () => {
+      console.log("Llamando a Supabase select users...");
       const { data, error } = await supabase.from('users').select('*').eq('dni', dni).maybeSingle();
+      console.log("Respuesta cruda de Supabase:", { data, error });
       if (error) {
         console.error("Error de Supabase en login:", error);
         return null;
@@ -408,9 +410,15 @@ export const deleteLog = async (id: string): Promise<void> => {
 
 export const checkDatabaseHealth = async (): Promise<boolean> => {
   try {
-    const { error } = await supabase.from('users').select('count', { count: 'exact', head: true });
+    const timeoutPromise = new Promise<null>((_, reject) => 
+      setTimeout(() => reject(new Error("TIMEOUT")), 5000)
+    );
+    const healthPromise = supabase.from('users').select('count', { count: 'exact', head: true });
+    
+    const { error } = await Promise.race([healthPromise, timeoutPromise]) as any;
     return !error;
-  } catch {
+  } catch (e) {
+    console.error("Health check falló:", e);
     return false;
   }
 };
