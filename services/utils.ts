@@ -295,56 +295,65 @@ export const deleteUser = async (id: string): Promise<void> => {
 export const authenticateUser = async (dni: string): Promise<User | null> => {
   console.log("Iniciando autenticación para DNI:", dni);
   
-  // Timeout de 10 segundos para evitar que la UI quede colgada si Supabase no responde
-  const timeoutPromise = new Promise<null>((_, reject) => 
-    setTimeout(() => reject(new Error("TIMEOUT_DB")), 10000)
-  );
+  const MAX_RETRIES = 3;
+  let lastError: any = null;
 
-  try {
-    const authPromise = (async () => {
-      console.log("Llamando a Supabase select users...");
-      const { data, error } = await supabase.from('users').select('*').eq('dni', dni).maybeSingle();
-      console.log("Respuesta cruda de Supabase:", { data, error });
-      if (error) {
-        console.error("Error de Supabase en login:", error);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`Intento ${attempt} de ${MAX_RETRIES}...`);
+      
+      // Timeout de 20 segundos por intento
+      const timeoutPromise = new Promise<null>((_, reject) => 
+        setTimeout(() => reject(new Error("TIMEOUT_DB")), 20000)
+      );
+
+      const authPromise = (async () => {
+        console.log("Llamando a Supabase select users...");
+        const { data, error } = await supabase.from('users').select('*').eq('dni', dni).maybeSingle();
+        console.log("Respuesta cruda de Supabase:", { data, error });
+        if (error) throw error;
+        return data;
+      })();
+
+      const data = await Promise.race([authPromise, timeoutPromise]);
+      
+      if (!data) {
+        console.log("Usuario no encontrado");
         return null;
       }
-      return data;
-    })();
-
-    const data = await Promise.race([authPromise, timeoutPromise]);
-    
-    if (!data) {
-      console.log("Usuario no encontrado o error en DB");
-      return null;
+      
+      if (!data.is_active) {
+        console.log("Usuario desactivado");
+        throw new Error("CUENTA DESACTIVADA");
+      }
+      
+      console.log("Autenticación exitosa para:", data.name);
+      return {
+        id: data.id,
+        dni: data.dni,
+        name: data.name,
+        role: data.role,
+        legajo: data.legajo,
+        password: data.password,
+        dressCode: data.dress_code,
+        photoRef: data.reference_image,
+        schedule: data.schedule || [],
+        assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
+        isActive: data.is_active
+      };
+    } catch (err: any) {
+      console.error(`Error en intento ${attempt}:`, err);
+      lastError = err;
+      if (err.message === "CUENTA DESACTIVADA") throw err;
+      
+      if (attempt < MAX_RETRIES) await new Promise(resolve => setTimeout(resolve, 2000));
     }
-    
-    if (!data.is_active) {
-      console.log("Usuario desactivado");
-      throw new Error("CUENTA DESACTIVADA");
-    }
-    
-    console.log("Autenticación exitosa para:", data.name);
-    return {
-      id: data.id,
-      dni: data.dni,
-      name: data.name,
-      role: data.role,
-      legajo: data.legajo,
-      password: data.password,
-      dressCode: data.dress_code,
-      photoRef: data.reference_image,
-      schedule: data.schedule || [],
-      assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
-      isActive: data.is_active
-    };
-  } catch (err: any) {
-    console.error("Excepción en authenticateUser:", err);
-    if (err.message === "TIMEOUT_DB") {
-      throw new Error("La base de datos no responde. Reintenta en unos segundos.");
-    }
-    throw err;
   }
+
+  if (lastError?.message === "TIMEOUT_DB") {
+    throw new Error("La base de datos está lenta. Intenta de nuevo.");
+  }
+  throw lastError;
 };
 
 export const saveLocation = async (loc: Location): Promise<void> => {
@@ -411,7 +420,7 @@ export const deleteLog = async (id: string): Promise<void> => {
 export const checkDatabaseHealth = async (): Promise<boolean> => {
   try {
     const timeoutPromise = new Promise<null>((_, reject) => 
-      setTimeout(() => reject(new Error("TIMEOUT")), 5000)
+      setTimeout(() => reject(new Error("TIMEOUT")), 15000)
     );
     const healthPromise = supabase.from('users').select('count', { count: 'exact', head: true });
     
