@@ -13,7 +13,7 @@ import {
 import { analyzeCheckIn } from './services/geminiService';
 import { 
   Camera, User as UserIcon, Shield, Clock, 
-  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity, Eye, EyeOff, CalendarPlus, ChevronDown, TimerOff
+  LogOut, CheckCircle, XCircle, AlertTriangle, Plus, Save, Lock, Hash, Upload, Trash2, ImageIcon, Pencil, X, RotateCcw, FileText, Users, Building, MapPin, Monitor, Maximize2, Laptop, FileUp, Key, Bell, BellRing, Wallet, MapPinned, RefreshCw, UserCheck, Shirt, Download, FileSpreadsheet, Menu, ArrowRight, Calendar, Briefcase, Filter, Search, XOctagon, Check, Navigation, Target, Activity, Eye, EyeOff, CalendarPlus, ChevronDown, TimerOff, Settings
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toDate, format } from 'date-fns-tz';
@@ -1404,6 +1404,33 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 </div>
              </div>
           )}
+
+          {/* Botón de Diagnóstico */}
+          <div className="mt-4 flex justify-center">
+            <button 
+              onClick={async () => {
+                const isDateValid = new Date().getFullYear() >= 2024;
+                const isOnline = navigator.onLine;
+                let dbStatus = 'Desconocido';
+                try {
+                  const healthy = await checkDatabaseHealth();
+                  dbStatus = healthy ? 'CONECTADA' : 'ERROR';
+                } catch (e) { dbStatus = 'ERROR'; }
+                
+                alert(`DIAGNÓSTICO DE TABLET:\n\n` +
+                      `📅 Fecha del Dispositivo: ${new Date().toLocaleString()}\n` +
+                      `   ${isDateValid ? '✅ Correcta' : '❌ INCORRECTA (Ajustar fecha y hora)'}\n\n` +
+                      `🌐 Internet: ${isOnline ? '✅ Conectado' : '❌ Desconectado'}\n` +
+                      `🗄️ Base de Datos: ${dbStatus === 'CONECTADA' ? '✅ Conectada' : '❌ Error de Conexión'}\n\n` +
+                      `📍 GPS: ${deviceLocation ? '✅ Activo' : '⚠️ Buscando...'}\n` +
+                      `📷 Cámara: ${cameraError ? '❌ Error' : '✅ Lista'}\n\n` +
+                      `Si la fecha es incorrecta, las fichadas no aparecerán en el día de hoy.`);
+              }}
+              className="text-[9px] font-black uppercase text-slate-400 tracking-widest hover:text-slate-600 flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-full border border-slate-100"
+            >
+              <Settings size={12} /> Diagnóstico de Problemas
+            </button>
+          </div>
         </div>
         <div className="space-y-6 flex flex-col">
           <div className="bg-white rounded-[32px] p-8 border shadow-sm">
