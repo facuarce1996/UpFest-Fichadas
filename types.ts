@@ -1,5 +1,5 @@
 
-export type Role = 'Admin' | 'Mozo' | 'Bartender' | 'Seguridad' | 'Limpieza' | 'Recepcionista';
+export type Role = string;
 
 export interface WorkSchedule {
   startDay: string;

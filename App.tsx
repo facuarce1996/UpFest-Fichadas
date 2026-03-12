@@ -1500,6 +1500,7 @@ const AdminDashboard = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [zoomedUserImage, setZoomedUserImage] = useState<string | null>(null);
+  const [isAddingNewRole, setIsAddingNewRole] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -1517,10 +1518,13 @@ const AdminDashboard = () => {
 
   useEffect(() => { load(); }, []);
 
+  const availableRoles = Array.from(new Set([...DEFAULT_ROLES, ...users.map(u => u.role)])).filter(Boolean);
+
   useEffect(() => { 
     if (editingUser) setFormData({ ...editingUser, schedule: editingUser.schedule || [], assignedLocations: editingUser.assignedLocations || [], isActive: editingUser.isActive }); 
     else setFormData({ role: 'Mozo', schedule: [], assignedLocations: [], password: '1234', legajo: '', isActive: true }); 
     setShowPassword(false);
+    setIsAddingNewRole(false);
   }, [editingUser, isCreating]);
 
   const handleDownloadTemplate = () => {
@@ -1603,6 +1607,7 @@ const AdminDashboard = () => {
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault(); 
     if (!formData.name || !formData.dni || !formData.password) return alert("Nombre, DNI y Contraseña obligatorios");
+    if (!formData.role || formData.role.trim() === '') return alert("El rol/puesto es obligatorio");
     setFormSaving(true); 
     try { 
       await saveUser(formData as User); 
@@ -1828,9 +1833,44 @@ const AdminDashboard = () => {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Rol / Puesto</label>
-                      <select value={formData.role || 'Mozo'} onChange={e => setFormData({...formData, role: e.target.value as Role})} className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm border border-transparent focus:border-slate-200">
-                        {DEFAULT_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
+                      {!isAddingNewRole ? (
+                        <select 
+                          value={formData.role || 'Mozo'} 
+                          onChange={e => {
+                            if (e.target.value === '___NEW___') {
+                              setIsAddingNewRole(true);
+                              setFormData({...formData, role: ''});
+                            } else {
+                              setFormData({...formData, role: e.target.value});
+                            }
+                          }} 
+                          className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none appearance-none text-sm border border-transparent focus:border-slate-200"
+                        >
+                          {availableRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                          <option value="___NEW___">+ Agregar nuevo puesto...</option>
+                        </select>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={formData.role || ''} 
+                            onChange={e => setFormData({...formData, role: e.target.value})} 
+                            placeholder="Nombre del puesto"
+                            className="w-full p-5 bg-slate-50 rounded-[20px] font-black text-slate-900 outline-none text-sm border border-transparent focus:border-slate-200" 
+                            autoFocus
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              if (!formData.role) setFormData({...formData, role: 'Mozo'});
+                              setIsAddingNewRole(false);
+                            }}
+                            className="p-5 bg-slate-100 text-slate-500 rounded-[20px] hover:bg-slate-200 transition-colors"
+                          >
+                            <X size={20} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Clave de Acceso</label>
