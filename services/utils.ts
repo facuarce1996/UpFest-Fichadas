@@ -176,17 +176,17 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
       .select('*')
       .gte('timestamp', rangeDate.toISOString())
       .order('timestamp', { ascending: false })
-      .limit(200); // Reducido de 1000 a 200 para aliviar carga
+      .limit(5000); // Aumentado para mostrar todos los registros
   };
 
   try {
-    // Intentar primero con 7 días
-    let { data, error, status } = await tryFetch(7);
+    // Intentar primero con 10 días
+    let { data, error, status } = await tryFetch(10);
     
-    // Si falla por timeout, intentar con un rango más corto (3 días)
+    // Si falla por timeout, intentar con un rango más corto (5 días)
     if (error && (error.message.includes('timeout') || status === 500)) {
-      console.warn("Fetch de 7 días falló por timeout, intentando con 3 días...");
-      const retry = await tryFetch(3);
+      console.warn("Fetch de 10 días falló por timeout, intentando con 5 días...");
+      const retry = await tryFetch(5);
       data = retry.data;
       error = retry.error;
       status = retry.status;
@@ -234,7 +234,7 @@ export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogE
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
       .order('timestamp', { ascending: false })
-      .limit(200); // Reducido de 1000 a 200 para aliviar carga
+      .limit(5000); // Aumentado para mostrar todos los registros
     
     if (error) {
       console.error("Error de Supabase en rango:", error);

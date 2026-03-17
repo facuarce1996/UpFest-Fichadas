@@ -1419,12 +1419,13 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 
                 alert(`DIAGNÓSTICO DE TABLET:\n\n` +
                       `📅 Fecha del Dispositivo: ${new Date().toLocaleString()}\n` +
-                      `   ${isDateValid ? '✅ Correcta' : '❌ INCORRECTA (Ajustar fecha y hora)'}\n\n` +
+                      `   Zona Horaria: GMT${-new Date().getTimezoneOffset() / 60}\n` +
+                      `   ${isDateValid ? '✅ Año Correcto' : '❌ AÑO INCORRECTO (Ajustar fecha y hora)'}\n\n` +
                       `🌐 Internet: ${isOnline ? '✅ Conectado' : '❌ Desconectado'}\n` +
                       `🗄️ Base de Datos: ${dbStatus === 'CONECTADA' ? '✅ Conectada' : '❌ Error de Conexión'}\n\n` +
                       `📍 GPS: ${deviceLocation ? '✅ Activo' : '⚠️ Buscando...'}\n` +
                       `📷 Cámara: ${cameraError ? '❌ Error' : '✅ Lista'}\n\n` +
-                      `Si la fecha es incorrecta, las fichadas no aparecerán en el día de hoy.`);
+                      `Si la hora de las fichadas sale mal, verifica que la hora de la tablet coincida con la hora real y que la zona horaria sea GMT-3 (Buenos Aires).`);
               }}
               className="text-[9px] font-black uppercase text-slate-400 tracking-widest hover:text-slate-600 flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-full border border-slate-100"
             >
