@@ -258,6 +258,11 @@ export const addLog = async (log: LogEntry): Promise<string> => {
   const newId = uuidv4();
   const logToSave = { ...log, id: newId };
 
+  // Cache the last log locally for offline support
+  try {
+    localStorage.setItem(`last_log_${log.userId}`, JSON.stringify(logToSave));
+  } catch (e) { console.error("Error caching last log", e); }
+
   try {
     const { error } = await supabase.from('logs').insert([{
       id: newId,
@@ -444,9 +449,59 @@ export const saveCompanyLogo = async (logoUrl: string): Promise<void> => {
 };
 
 export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => {
-  const { data, error } = await supabase.from('logs').select('*').eq('user_id', userId).order('timestamp', { ascending: false }).limit(1).maybeSingle();
-  if (error) return null;
-  return data ? mapLog(data) : null;
+  try {
+    const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 3000));
+    const fetchPromise = supabase.from('logs').select('*').eq('user_id', userId).order('timestamp', { ascending: false }).limit(1).maybeSingle();
+    
+    const response = await Promise.race([fetchPromise, timeoutPromise]) as any;
+    
+    let dbLog = null;
+    if (response && response.data) {
+      dbLog = mapLog(response.data);
+      localStorage.setItem(`last_log_${userId}`, JSON.stringify(dbLog));
+    }
+
+    // Check pending logs just in case there's a newer one
+    const pendingLogs = JSON.parse(localStorage.getItem('pending_logs') || '[]');
+    const userPendingLogs = pendingLogs.filter((l: any) => l.userId === userId || l.user_id === userId);
+    let lastPendingLog = null;
+    
+    if (userPendingLogs.length > 0) {
+      userPendingLogs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      lastPendingLog = userPendingLogs[0];
+      if (lastPendingLog.user_id) lastPendingLog = mapLog(lastPendingLog);
+    }
+
+    if (lastPendingLog && dbLog) {
+      return new Date(lastPendingLog.timestamp).getTime() > new Date(dbLog.timestamp).getTime() ? lastPendingLog : dbLog;
+    }
+    
+    return lastPendingLog || dbLog || null;
+
+  } catch (err) {
+    console.warn("Error fetching last log from DB, using local cache:", err);
+    
+    const pendingLogs = JSON.parse(localStorage.getItem('pending_logs') || '[]');
+    const userPendingLogs = pendingLogs.filter((l: any) => l.userId === userId || l.user_id === userId);
+    let lastPendingLog = null;
+    if (userPendingLogs.length > 0) {
+      userPendingLogs.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      lastPendingLog = userPendingLogs[0];
+      if (lastPendingLog.user_id) lastPendingLog = mapLog(lastPendingLog);
+    }
+
+    const cachedLogStr = localStorage.getItem(`last_log_${userId}`);
+    let cachedLog = null;
+    if (cachedLogStr) {
+      try { cachedLog = JSON.parse(cachedLogStr); } catch(e) {}
+    }
+
+    if (lastPendingLog && cachedLog) {
+       return new Date(lastPendingLog.timestamp).getTime() > new Date(cachedLog.timestamp).getTime() ? lastPendingLog : cachedLog;
+    }
+    
+    return lastPendingLog || cachedLog || null;
+  }
 };
 
 export const updateLog = async (log: LogEntry): Promise<void> => {
