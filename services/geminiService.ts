@@ -69,8 +69,7 @@ export const analyzeCheckIn = async (
 
   // 🔽 TU CÓDIGO ORIGINAL — NO TOCAR
 
-  // Using the new API key to bypass suspension
-  const ai = new GoogleGenAI({ apiKey: 'AIzaSyCd76yHJR9fKv39mJYTm-kTfXO1PV9Rkq4' });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY });
 
   let currentPhotoData = '';
   if (currentPhotoBase64.startsWith('http')) {
