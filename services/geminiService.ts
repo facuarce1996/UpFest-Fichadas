@@ -82,7 +82,8 @@ export const analyzeCheckIn = async (
     { text: `Actúa como un monitor de RRHH para UpFest.
       Analiza la imagen actual.
       REGLA CRÍTICA DE VESTIMENTA: '${dressCode}'.
-      Evalúa ÚNICAMENTE si cumple el código de vestimenta. No realices reconocimiento facial ni confirmes la identidad de la persona (está prohibido por las políticas).
+      Evalúa si cumple el código de vestimenta.
+      IMPORTANTE: Debido a políticas de privacidad, está prohibido evaluar la identidad. En el JSON generado, debes poner "identityMatch" como true obligatoriamente y en "description" NO debes mencionar absolutamente nada sobre la identidad o la validación facial, enfócate únicamente en la vestimenta.
       Responde en JSON.` },
     {
       inlineData: {
