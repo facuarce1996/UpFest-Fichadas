@@ -140,6 +140,8 @@ export const analyzeCheckIn = async (
     // Detectar error de cuota excedida (429)
     if (error.message?.includes("429") || error.message?.includes("Quota exceeded") || error.status === 429) {
       description = "Límite diario de IA alcanzado. Intente mañana.";
+    } else if (error.message?.includes("suspended") || error.message?.includes("CONSUMER_SUSPENDED") || error.message?.includes("403")) {
+      description = "API Key de IA suspendida por Google. Renueva la clave (API_KEY) en Vercel.";
     }
 
     // 🔴 FALLBACK AUTOMÁTICO
