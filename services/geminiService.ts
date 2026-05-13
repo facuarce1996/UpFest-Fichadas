@@ -67,88 +67,31 @@ export const analyzeCheckIn = async (
   }
 
 
-  // 🔽 TU CÓDIGO ORIGINAL — NO TOCAR
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY });
-
-  let currentPhotoData = '';
-  if (currentPhotoBase64.startsWith('http')) {
-    currentPhotoData = await imageUrlToBase64(currentPhotoBase64);
-  } else {
-    currentPhotoData = cleanBase64(currentPhotoBase64);
-  }
-
-  const parts: any[] = [
-    { text: `Actúa como un monitor de RRHH para UpFest.
-      Analiza la imagen actual.
-      REGLA CRÍTICA DE VESTIMENTA: '${dressCode}'.
-      Evalúa si cumple el código de vestimenta.
-      IMPORTANTE: Debido a políticas de privacidad, está prohibido evaluar la identidad. En el JSON generado, debes poner "identityMatch" como true obligatoriamente y en "description" NO debes mencionar absolutamente nada sobre la identidad o la validación facial, enfócate únicamente en la vestimenta.
-      Responde en JSON.` },
-    {
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: currentPhotoData
-      }
-    }
-  ];
-
-  // We no longer send the reference photo to avoid biometric facial recognition suspensions
-  /*
-  if (referencePhotoBase64 && referencePhotoBase64.length > 10) {
-    let refData = referencePhotoBase64.startsWith('http')
-      ? await imageUrlToBase64(referencePhotoBase64)
-      : cleanBase64(referencePhotoBase64);
-
-    if (refData) {
-      parts.push({
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: refData
-        }
-      });
-    }
-  }
-  */
-
+  // 🔽 LLAMADA AL BACKEND PARA PROTEGER LA API KEY
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: { parts },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
-      },
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPhotoBase64, dressCode })
     });
 
-    const text = response.text;
-    if (!text) throw new Error("La IA no devolvió una respuesta válida.");
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${response.status}`);
+    }
 
-    const result = JSON.parse(text.trim());
-
+    const data = await response.json();
     return {
-      identityMatch: result.identityMatch ?? true,
-      dressCodeMatches: result.dressCodeMatches ?? true,
-      description: result.description ?? "Validación completada."
+      identityMatch: data.identityMatch ?? true,
+      dressCodeMatches: data.dressCodeMatches ?? true,
+      description: data.description ?? "Validación completada."
     };
 
   } catch (error: any) {
-    console.error("IA falló — se guarda igual", error);
-
-    let description = `IA no disponible (${error.message || 'Error desconocido'}) — validación omitida`;
-    
-    // Detectar error de cuota excedida (429)
-    if (error.message?.includes("429") || error.message?.includes("Quota exceeded") || error.status === 429) {
-      description = "Límite diario de IA alcanzado. Intente mañana.";
-    } else if (error.message?.includes("suspended") || error.message?.includes("CONSUMER_SUSPENDED") || error.message?.includes("403")) {
-      description = "API Key de IA suspendida por Google. Renueva la clave (API_KEY) en Vercel.";
-    }
-
-    // 🔴 FALLBACK AUTOMÁTICO
+    console.error("Error al llamar al backend IA:", error);
     return {
       identityMatch: true,
       dressCodeMatches: true,
-      description: description
+      description: `IA no disponible (${error.message || 'Error desconocido'}) — validación omitida`
     };
   }
 };
