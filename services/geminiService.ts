@@ -1,51 +1,7 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { ValidationResult } from "../types";
-
 
 // 🔴 SWITCH GLOBAL — CAMBIAR A true CUANDO QUIERAS REACTIVAR IA
 const IA_ENABLED = true;
-
-
-const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    identityMatch: { type: Type.BOOLEAN },
-    dressCodeMatches: { type: Type.BOOLEAN },
-    description: { type: Type.STRING },
-  },
-  required: ["identityMatch", "dressCodeMatches", "description"],
-};
-
-
-/**
- * Convierte una URL de imagen a Base64
- */
-const imageUrlToBase64 = async (url: string): Promise<string> => {
-  try {
-    const response = await fetch(url);
-    const blob = await response.blob();
-
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        resolve((reader.result as string).split(',')[1]);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-
-  } catch {
-    return "";
-  }
-};
-
-
-const cleanBase64 = (base64: string): string => {
-  if (!base64) return "";
-  const parts = base64.split(",");
-  return parts.length > 1 ? parts[1] : parts[0];
-};
-
 
 
 export const analyzeCheckIn = async (
