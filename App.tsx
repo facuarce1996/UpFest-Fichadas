@@ -304,8 +304,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             const diffMs = end.getTime() - start.getTime();
             const diffMins = Math.round(diffMs / 60000);
 
+            const userObj = allUsers.find(u => u.id === current.userId);
             reportData.push({
-              'LEGAJO': current.legajo,
+              'DNI': userObj?.dni || current.legajo,
               'NOMBRE': current.userName,
               'FECHA INGRESO': start.toLocaleDateString('es-AR'),
               'HORA INGRESO': start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -320,8 +321,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             });
             i++; 
           } else {
+            const userObj = allUsers.find(u => u.id === current.userId);
             reportData.push({
-              'LEGAJO': current.legajo,
+              'DNI': userObj?.dni || current.legajo,
               'NOMBRE': current.userName,
               'FECHA INGRESO': new Date(current.timestamp).toLocaleDateString('es-AR'),
               'HORA INGRESO': new Date(current.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
@@ -336,8 +338,9 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             });
           }
         } else if (current.type === 'CHECK_OUT') {
+          const userObj = allUsers.find(u => u.id === current.userId);
           reportData.push({
-            'LEGAJO': current.legajo,
+            'DNI': userObj?.dni || current.legajo,
             'NOMBRE': current.userName,
             'FECHA INGRESO': '---',
             'HORA INGRESO': '---',
@@ -499,7 +502,12 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           const finalPhotoUrl = await uploadImage(photo, 'fichadas', fileName);
 
           // B. Análisis IA
-          const iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
+          let iaResult;
+          if (user.role === 'Invitado') {
+            iaResult = { dressCodeMatches: true, identityMatch: true, description: "Invitado - Sin validación IA" };
+          } else {
+            iaResult = await analyzeCheckIn(photo, user.dressCode, user.photoRef);
+          }
           
           // C. Actualizar log con URL de foto y resultados IA
           const finalLog: LogEntry = {
@@ -576,15 +584,23 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     if (!confirm('¿CONFIRMAS REVALIDAR ESTA FICHADA? Se volverá a ejecutar el análisis de IA.')) return;
     setIsRevalidating(log.id);
     try {
-      const userRef = allUsers.find(u => u.id === log.userId)?.photoRef;
-      if (!userRef) {
+      const userObj = allUsers.find(u => u.id === log.userId);
+      const userRef = userObj?.photoRef;
+      
+      if (!userRef && userObj?.role !== 'Invitado') {
         alert('No se encontró foto de referencia para el usuario.');
         setIsRevalidating(null);
         return;
       }
-      const userDressCode = allUsers.find(u => u.id === log.userId)?.dressCode || 'N/A';
+      
+      const userDressCode = userObj?.dressCode || 'N/A';
 
-      const validationResult = await analyzeCheckIn(log.photoEvidence, userDressCode, userRef);
+      let validationResult;
+      if (userObj?.role === 'Invitado') {
+        validationResult = { dressCodeMatches: true, identityMatch: true, description: "Invitado - Sin validación IA" };
+      } else {
+        validationResult = await analyzeCheckIn(log.photoEvidence, userDressCode, userRef);
+      }
       const updatedLog = {
         ...log,
         dressCodeStatus: (validationResult.dressCodeMatches ? 'PASS' : 'FAIL') as 'PASS' | 'FAIL' | 'SKIPPED',
@@ -1231,7 +1247,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       <tr key={log.id} className={`hover:bg-white transition-all ${isNoExitCase ? 'bg-orange-50/20' : ''}`}>
                         <td className="p-6 text-center">
                           <div onClick={() => log.photoEvidence && setZoomedImage(log.photoEvidence)} className="w-14 h-14 mx-auto rounded-xl overflow-hidden border-2 border-white cursor-zoom-in shadow-md">
-                            {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center">{log.aiFeedback.includes('manual') ? <FileText className="text-slate-300" /> : <UserIcon className="text-slate-300" />}</div>}
+                            {log.photoEvidence ? <img src={log.photoEvidence} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} /> : null}
+                            <div className={`bg-slate-100 w-full h-full flex items-center justify-center ${log.photoEvidence ? 'hidden' : ''}`}>{log.aiFeedback.includes('manual') ? <FileText className="text-slate-300" /> : <UserIcon className="text-slate-300" />}</div>
                           </div>
                         </td>
                         <td className="p-6">
@@ -1438,7 +1455,8 @@ const ClockView = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             <h3 className="font-black text-[10px] uppercase text-slate-400 tracking-widest mb-4">Perfil</h3>
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-2xl bg-slate-50 overflow-hidden border-2 border-slate-100 shadow-sm shrink-0">
-                {user.photoRef ? <img src={user.photoRef} className="w-full h-full object-cover" /> : <div className="bg-slate-100 w-full h-full flex items-center justify-center"><UserIcon className="text-slate-300" /></div>}
+                {user.photoRef ? <img src={user.photoRef} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} /> : null}
+                <div className={`bg-slate-100 w-full h-full flex items-center justify-center ${user.photoRef ? 'hidden' : ''}`}><UserIcon className="text-slate-300" /></div>
               </div>
               <div>
                 <h4 className="font-black text-lg text-slate-900 uppercase leading-none">{user.name}</h4>
@@ -1725,6 +1743,32 @@ const AdminDashboard = () => {
           <button onClick={handleExportUsers} className="flex-1 md:flex-none bg-white text-slate-700 border border-slate-200 px-6 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all">
             <Download size={18} /> Exportar a Excel
           </button>
+          <button onClick={() => {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.onchange = async (e: any) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                   const res = reader.result as string;
+                   const timestamp = new Date().getTime();
+                   const fileName = `logos/logo_${timestamp}.jpg`;
+                   const finalUrl = await uploadImage(res, 'fichadas', fileName);
+                   await saveCompanyLogo(finalUrl);
+                   alert("Logo actualizado con éxito. Recarga la página para ver los cambios.");
+                };
+                reader.readAsDataURL(file);
+              } catch(err: any) {
+                 alert("Error subiendo logo: " + err.message);
+              }
+            };
+            fileInput.click();
+          }} className="flex-1 md:flex-none bg-indigo-50 text-indigo-600 border border-indigo-200 px-6 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-sm font-black text-[10px] uppercase tracking-widest hover:bg-indigo-100 transition-all">
+            <ImageIcon size={18} /> Cambiar Logo
+          </button>
           <button onClick={() => setIsCreating(true)} className="flex-1 md:flex-none bg-slate-900 text-white px-8 py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-colors">
             <Plus size={18} /> Nuevo Colaborador
           </button>
@@ -1762,7 +1806,8 @@ const AdminDashboard = () => {
                      onClick={() => u.photoRef && setZoomedUserImage(u.photoRef)}
                      className="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden border shrink-0 cursor-zoom-in"
                    >
-                     {u.photoRef && <img src={u.photoRef} className="w-full h-full object-cover" />}
+                     {u.photoRef ? <img src={u.photoRef} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} /> : null}
+                     <div className={`w-full h-full flex items-center justify-center bg-slate-100 text-slate-400 text-xs font-black uppercase ${u.photoRef ? 'hidden' : ''}`}>{u.name.charAt(0)}</div>
                    </div>
                    <span className="font-black text-slate-800 uppercase text-sm">{u.name}</span>
                  </td>
@@ -1812,7 +1857,8 @@ const AdminDashboard = () => {
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 md:gap-12">
                 <div className="flex flex-col items-center gap-6">
                     <div className="aspect-[4/5] w-full bg-slate-50 rounded-[32px] border-4 border-slate-100 relative overflow-hidden group shadow-inner">
-                       {formData.photoRef ? <img src={formData.photoRef} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-200"><ImageIcon size={48}/></div>}
+                       {formData.photoRef ? <img src={formData.photoRef} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} /> : null}
+                       <div className={`w-full h-full flex items-center justify-center text-slate-200 ${formData.photoRef ? 'hidden' : ''}`}><ImageIcon size={48}/></div>
                        <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-black text-xs uppercase gap-2 backdrop-blur-sm"><Upload size={18}/> Cambiar</button>
                     </div>
                     <input type="file" ref={fileInputRef} onChange={handleImageChange} className="hidden" accept="image/*" />
@@ -2178,7 +2224,8 @@ const Sidebar = ({ activeTab, setActiveTab, currentUser, onLogout, logoUrl, isMo
       {isMobileMenuOpen && <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] md:hidden" onClick={() => setIsMobileMenuOpen(false)} />}
       <aside className={`fixed inset-y-0 left-0 z-[100] w-72 bg-white border-r border-slate-200 transform transition-transform duration-300 md:translate-x-0 md:static h-full flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-10 border-b flex flex-col items-center">
-          {logoUrl ? <img src={logoUrl} className="h-16 mb-4 object-contain" /> : <div className="w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mb-4">UP</div>}
+          {logoUrl ? <img src={logoUrl} className="h-16 mb-4 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} /> : null}
+          <div className={`w-16 h-16 bg-slate-900 text-white rounded-[24px] flex items-center justify-center font-black text-2xl mb-4 ${logoUrl ? 'hidden' : ''}`}>UP</div>
           <span className="font-black text-slate-900 tracking-tighter text-2xl">UPFEST</span>
         </div>
         <nav className="flex-1 p-8 space-y-2 overflow-y-auto">
@@ -2274,7 +2321,8 @@ const LoginView = ({ onLogin, logoUrl }: { onLogin: (u: User) => void, logoUrl: 
       <div className="w-full max-w-sm bg-white rounded-[48px] shadow-2xl p-14 border relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-2 bg-slate-900"></div>
         <div className="text-center">
-          {logoUrl ? <img src={logoUrl} className="h-20 mx-auto mb-8 object-contain" /> : <div className="w-24 h-24 bg-slate-900 rounded-[32px] flex items-center justify-center mx-auto mb-8 text-white font-black text-4xl shadow-2xl">UP</div>}
+          {logoUrl ? <img src={logoUrl} className="h-20 mx-auto mb-8 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} /> : null}
+          <div className={`w-24 h-24 bg-slate-900 rounded-[32px] flex items-center justify-center mx-auto mb-8 text-white font-black text-4xl shadow-2xl ${logoUrl ? 'hidden' : ''}`}>UP</div>
           <h2 className="text-3xl font-black mb-2 uppercase tracking-tighter text-slate-800">UPFEST</h2>
           <p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">CONTROL BIOMÉTRICO</p>
         </div>

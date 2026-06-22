@@ -350,11 +350,36 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
         return data;
       })();
 
-      const data = await Promise.race([authPromise, timeoutPromise]);
+      let data = await Promise.race([authPromise, timeoutPromise]);
       
       if (!data) {
-        console.log("Usuario no encontrado en DB");
-        return null;
+        console.log("Usuario no encontrado en DB, creando perfil de INVITADO...");
+        const newUserId = uuidv4();
+        const guestData = {
+          id: newUserId,
+          dni: dni,
+          name: "Invitado",
+          role: "Invitado",
+          legajo: "INV",
+          dress_code: "N/A",
+          is_active: true,
+          reference_image: null,
+          password: "",
+          schedule: [],
+          assigned_locations: []
+        };
+        
+        try {
+          const { error: insertError } = await supabase.from('users').insert([guestData]);
+          if (insertError) {
+            console.error("Error creando invitado en DB:", insertError);
+            return null;
+          }
+          data = guestData;
+        } catch (e) {
+          console.error("Exception creando invitado:", e);
+          return null;
+        }
       }
       
       if (!data.is_active) {
@@ -438,14 +463,24 @@ export const deleteLocation = async (id: string): Promise<void> => {
 };
 
 export const fetchCompanyLogo = async (): Promise<string | null> => {
-  const { data, error } = await supabase.from('app_settings').select('value').eq('key', 'company_logo').maybeSingle();
-  if (error) return null;
-  return data?.value || null;
+  try {
+    const { data, error } = await supabase.from('company_settings').select('logo_url').maybeSingle();
+    if (error) return null;
+    return data?.logo_url || null;
+  } catch(e) {
+    return null;
+  }
 };
 
 export const saveCompanyLogo = async (logoUrl: string): Promise<void> => {
-  const { error } = await supabase.from('app_settings').upsert({ key: 'company_logo', value: logoUrl });
-  if (error) throw error;
+  const { data } = await supabase.from('company_settings').select('id').maybeSingle();
+  if (data?.id) {
+    const { error } = await supabase.from('company_settings').update({ logo_url: logoUrl }).eq('id', data.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from('company_settings').insert([{ logo_url: logoUrl }]);
+    if (error) throw error;
+  }
 };
 
 export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => {
@@ -535,7 +570,7 @@ export const checkDatabaseHealth = async (): Promise<boolean> => {
     const { error } = await Promise.race([healthPromise, timeoutPromise]) as any;
     return !error;
   } catch (e) {
-    console.warn("Health check warning (posible lentitud):", e);
+    console.warn("Health check warning:", e);
     return false;
   }
 };
