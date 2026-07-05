@@ -327,7 +327,7 @@ export const deleteUser = async (id: string): Promise<void> => {
   if (error) throw error;
 };
 
-export const authenticateUser = async (dni: string): Promise<User | null> => {
+export const authenticateUser = async (dni: string, isGuest: boolean = false): Promise<User | null> => {
   console.log("Iniciando autenticación para DNI:", dni);
   
   const MAX_RETRIES = 3;
@@ -353,6 +353,9 @@ export const authenticateUser = async (dni: string): Promise<User | null> => {
       let data = await Promise.race([authPromise, timeoutPromise]);
       
       if (!data) {
+        if (!isGuest) {
+          return null;
+        }
         console.log("Usuario no encontrado en DB, creando perfil de INVITADO...");
         const newUserId = uuidv4();
         const guestData = {
