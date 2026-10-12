@@ -1,29 +1,25 @@
 import { ValidationResult } from "../types";
 
-// 🔴 SWITCH GLOBAL — CAMBIAR A true CUANDO QUIERAS REACTIVAR IA
+// Switch global de IA
 const IA_ENABLED = true;
-
 
 export const analyzeCheckIn = async (
   currentPhotoBase64: string,
   dressCode: string,
-  referencePhotoBase64: string | null
+  referencePhotoBase64?: string | null
 ): Promise<ValidationResult> => {
 
-
-  // 🟢 MODO SEGURO — IA DESACTIVADA
+  // Modo seguro — IA desactivada
   if (!IA_ENABLED) {
-    console.log("IA desactivada — se guarda fichada sin validación");
-
     return {
-      identityMatch: true, // no bloquea
-      dressCodeMatches: true, // no bloquea
+      aiAvailable: false,
+      identityMatch: true,
+      dressCodeMatches: false,
       description: "Validación automática desactivada temporalmente"
     };
   }
 
-
-  // 🔽 LLAMADA AL BACKEND PARA PROTEGER LA API KEY
+  // Llamada al backend
   try {
     const response = await fetch('/api/analyze', {
       method: 'POST',
@@ -37,17 +33,19 @@ export const analyzeCheckIn = async (
 
     const data = await response.json();
     return {
-      identityMatch: data.identityMatch ?? true,
-      dressCodeMatches: data.dressCodeMatches ?? true,
+      aiAvailable: data.aiAvailable ?? true,
+      identityMatch: true,
+      dressCodeMatches: data.dressCodeMatches ?? false,
       description: data.description ?? "Validación completada."
     };
 
   } catch (error: any) {
-    console.error("Error al llamar al backend IA:", error);
+    console.error("Error al llamar al backend IA:", error.message || error);
     return {
+      aiAvailable: false,
       identityMatch: true,
-      dressCodeMatches: true,
-      description: `IA no disponible (${error.message || 'Error desconocido'}) — validación omitida`
+      dressCodeMatches: false,
+      description: `IA no disponible (${error.message || 'Error de conexión'}) — validación omitida`
     };
   }
 };

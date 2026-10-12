@@ -1,28 +1,259 @@
-
-import { toDate } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz';
 import { supabase } from './supabaseClient';
 import { User, Location, LogEntry, WorkSchedule } from '../types';
+import { analyzeCheckIn } from './geminiService';
+
+export interface PendingPhoto {
+  logId: string;
+  userId: string;
+  photoBase64: string;
+  dressCode: string;
+}
+
+// Sanitizar caché inicial por si contenía contraseñas antiguas
+try {
+  const existingCache = localStorage.getItem('cached_users');
+  if (existingCache) {
+    const parsed = JSON.parse(existingCache);
+    if (Array.isArray(parsed)) {
+      const cleaned = parsed.map((u: any) => {
+        const { password, ...rest } = u;
+        return rest;
+      });
+      localStorage.setItem('cached_users', JSON.stringify(cleaned));
+    }
+  }
+} catch (e) {}
+
+/**
+ * Comprime una imagen a máx dimension (ancho/alto) y calidad especificada para optimizar localStorage.
+ */
+export const compressImage = (base64: string, maxDim = 640, quality = 0.7): Promise<string> => {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || typeof Image === 'undefined' || !base64) {
+      return resolve(base64);
+    }
+    const img = new Image();
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(base64);
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(base64);
+    img.src = base64;
+  });
+};
+
+/**
+ * Obtiene la hora confiable del servidor (/api/time con timeout de 2s).
+ * Si falla, usa la hora del dispositivo indicando que es local.
+ */
+export const getReliableTime = async (): Promise<{ timestamp: string; isDeviceTime: boolean; diffMinutes: number }> => {
+  const deviceNow = new Date();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const resp = await fetch('/api/time', { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.now) {
+        const serverNow = new Date(data.now);
+        const diffMinutes = Math.abs(serverNow.getTime() - deviceNow.getTime()) / (1000 * 60);
+        return {
+          timestamp: serverNow.toISOString(),
+          isDeviceTime: false,
+          diffMinutes
+        };
+      }
+    }
+  } catch (e) {
+    // Timeout o fallo de red
+  }
+  return {
+    timestamp: deviceNow.toISOString(),
+    isDeviceTime: true,
+    diffMinutes: 0
+  };
+};
+
+/**
+ * Devuelve el total de fichadas pendientes de sincronizar (logs + fotos pendientes sin duplicar).
+ */
+export const getPendingSyncCount = (): number => {
+  try {
+    const pendingLogs: LogEntry[] = JSON.parse(localStorage.getItem('pending_logs') || '[]');
+    const pendingPhotos: PendingPhoto[] = JSON.parse(localStorage.getItem('pending_photos') || '[]');
+    const ids = new Set<string>();
+    pendingLogs.forEach(l => { if (l.id) ids.add(l.id); });
+    pendingPhotos.forEach(p => { if (p.logId) ids.add(p.logId); });
+    return ids.size;
+  } catch (e) {
+    return 0;
+  }
+};
+
+/**
+ * Guarda una foto en la cola offline 'pending_photos' comprimida.
+ */
+export const queuePendingPhoto = async (item: { logId: string; userId: string; photoBase64: string; dressCode: string }): Promise<void> => {
+  try {
+    const compressed = await compressImage(item.photoBase64, 640, 0.7);
+    const pendingPhotos: PendingPhoto[] = JSON.parse(localStorage.getItem('pending_photos') || '[]');
+    if (!pendingPhotos.some(p => p.logId === item.logId)) {
+      pendingPhotos.push({
+        logId: item.logId,
+        userId: item.userId,
+        photoBase64: compressed,
+        dressCode: item.dressCode
+      });
+      localStorage.setItem('pending_photos', JSON.stringify(pendingPhotos));
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('pending-sync-updated'));
+    }
+  } catch (storageErr) {
+    console.error("LocalStorage lleno o no disponible al encolar foto pendiente:", storageErr);
+  }
+};
+
+let isSyncing = false;
+
+/**
+ * Sincroniza logs y fotos pendientes en localStorage con Supabase.
+ */
+export const syncPendingLogs = async (onSyncUpdate?: () => void): Promise<{ syncedLogs: number; syncedPhotos: number }> => {
+  if (isSyncing) return { syncedLogs: 0, syncedPhotos: 0 };
+  isSyncing = true;
+  let syncedLogs = 0;
+  let syncedPhotos = 0;
+
+  try {
+    // 1. Sincronizar fichadas offline (pending_logs)
+    const pendingLogsRaw = localStorage.getItem('pending_logs');
+    if (pendingLogsRaw) {
+      const pendingLogs: LogEntry[] = JSON.parse(pendingLogsRaw);
+      const remainingLogs: LogEntry[] = [];
+
+      for (const log of pendingLogs) {
+        try {
+          const { error } = await supabase.from('logs').insert([{
+            id: log.id,
+            user_id: log.userId,
+            user_name: log.userName,
+            legajo: log.legajo,
+            timestamp: log.timestamp,
+            type: log.type,
+            location_id: log.locationId,
+            location_name: log.locationName,
+            location_status: log.locationStatus,
+            dress_code_status: log.dressCodeStatus,
+            identity_status: 'SKIPPED',
+            schedule_status: log.scheduleStatus,
+            photo_evidence: log.photoEvidence,
+            ai_feedback: log.aiFeedback
+          }]);
+
+          if (error) {
+            // Si el error es de clave duplicada, considerarlo sincronizado
+            if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('already exists') || error.message?.includes('unique constraint')) {
+              syncedLogs++;
+            } else {
+              remainingLogs.push(log);
+            }
+          } else {
+            syncedLogs++;
+          }
+        } catch (err) {
+          remainingLogs.push(log);
+        }
+      }
+
+      localStorage.setItem('pending_logs', JSON.stringify(remainingLogs));
+    }
+
+    // 2. Sincronizar fotos pendientes (pending_photos)
+    const pendingPhotosRaw = localStorage.getItem('pending_photos');
+    if (pendingPhotosRaw) {
+      const pendingPhotos: PendingPhoto[] = JSON.parse(pendingPhotosRaw);
+      const remainingPhotos: PendingPhoto[] = [];
+
+      for (const item of pendingPhotos) {
+        try {
+          // Subir foto
+          const timestamp = Date.now();
+          const fileName = `logs/${item.userId}_${timestamp}.jpg`;
+          const finalPhotoUrl = await uploadImage(item.photoBase64, 'fichadas', fileName);
+
+          // Correr IA
+          const iaResult = await analyzeCheckIn(item.photoBase64, item.dressCode, null);
+          const dressCodeStatus = iaResult.aiAvailable ? (iaResult.dressCodeMatches ? 'PASS' : 'FAIL') : 'SKIPPED';
+
+          // Actualizar log en base de datos
+          const { error: updateError } = await supabase.from('logs').update({
+            photo_evidence: finalPhotoUrl,
+            dress_code_status: dressCodeStatus,
+            identity_status: 'SKIPPED',
+            ai_feedback: iaResult.description
+          }).eq('id', item.logId);
+
+          if (updateError) {
+            remainingPhotos.push(item);
+          } else {
+            syncedPhotos++;
+          }
+        } catch (photoErr) {
+          remainingPhotos.push(item);
+        }
+      }
+
+      localStorage.setItem('pending_photos', JSON.stringify(remainingPhotos));
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('pending-sync-updated'));
+    }
+    if (onSyncUpdate) onSyncUpdate();
+
+  } catch (err: any) {
+    console.error("Error en syncPendingLogs:", err.message || err);
+  } finally {
+    isSyncing = false;
+  }
+
+  return { syncedLogs, syncedPhotos };
+};
 
 /**
  * Sube una imagen Base64 al storage de Supabase y devuelve la URL pública.
  */
 export const uploadImage = async (base64: string, bucket: string, path: string): Promise<string> => {
   try {
-    // 1. Limpiar el base64 de posibles prefijos
     const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-    
-    // 2. Convertir a Uint8Array de forma segura
     const binaryString = atob(base64Data);
     const bytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
       bytes[i] = binaryString.charCodeAt(i);
     }
     
-    // 3. Crear el Blob con el tipo MIME correcto
     const blob = new Blob([bytes], { type: 'image/jpeg' });
 
-    // 4. Subir a Supabase
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from(bucket)
       .upload(path, blob, {
         cacheControl: '3600',
@@ -31,18 +262,17 @@ export const uploadImage = async (base64: string, bucket: string, path: string):
       });
 
     if (error) {
-      console.error("Error de Supabase Storage:", error);
+      console.error("Error de Supabase Storage:", error.message);
       throw new Error(`Error de Storage: ${error.message}`);
     }
 
-    // 5. Obtener URL Pública
     const { data: { publicUrl } } = supabase.storage
       .from(bucket)
       .getPublicUrl(path);
 
     return publicUrl;
   } catch (err: any) {
-    console.error("Error detallado en uploadImage:", err);
+    console.error("Error en uploadImage:", err.message || "Error al subir imagen");
     throw new Error(err.message || "No se pudo subir la foto al servidor.");
   }
 };
@@ -78,33 +308,68 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
 export const isWithinSchedule = (schedule: WorkSchedule[]): boolean => {
   if (!schedule || schedule.length === 0) return true;
   const timeZone = 'America/Argentina/Buenos_Aires';
-  const now = toDate(new Date(), { timeZone });
-  const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-  const currentDay = days[now.getDay()];
-  const currentTime = now.getHours() * 60 + now.getMinutes();
+  
+  // Obtener fecha/hora en Argentina usando date-fns-tz
+  const now = new Date();
+  const currentDayIndex = parseInt(formatInTimeZone(now, timeZone, 'i'), 10); // 1 = Lunes, ..., 7 = Domingo
+  const dayIndexInWeek = currentDayIndex % 7; // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+  const currentH = parseInt(formatInTimeZone(now, timeZone, 'H'), 10);
+  const currentM = parseInt(formatInTimeZone(now, timeZone, 'm'), 10);
+  const currentWeeklyMinute = dayIndexInWeek * 1440 + currentH * 60 + currentM;
+
+  const dayNameToIndex: Record<string, number> = {
+    'Domingo': 0,
+    'Lunes': 1,
+    'Martes': 2,
+    'Miércoles': 3,
+    'Miercoles': 3,
+    'Jueves': 4,
+    'Viernes': 5,
+    'Sábado': 6,
+    'Sabado': 6
+  };
 
   return schedule.some(slot => {
-    if (slot.startDay !== currentDay) return false;
-    const [startH, startM] = slot.startTime.split(':').map(Number);
-    const [endH, endM] = slot.endTime.split(':').map(Number);
-    const start = startH * 60 + startM;
-    const end = endH * 60 + endM;
-    return currentTime >= start && currentTime <= end;
+    const startDayIdx = dayNameToIndex[slot.startDay];
+    let endDayIdx = dayNameToIndex[slot.endDay];
+    if (startDayIdx === undefined || endDayIdx === undefined) return false;
+
+    const [startH, startM] = (slot.startTime || '00:00').split(':').map(Number);
+    const [endH, endM] = (slot.endTime || '00:00').split(':').map(Number);
+
+    const slotStartMinute = startDayIdx * 1440 + startH * 60 + startM;
+    let slotEndMinute = endDayIdx * 1440 + endH * 60 + endM;
+
+    // Si startDay === endDay pero endTime < startTime (ej: Sábado 20:00 a Sábado 04:00, cruza medianoche)
+    if (startDayIdx === endDayIdx && (endH * 60 + endM) < (startH * 60 + startM)) {
+      endDayIdx = (startDayIdx + 1) % 7;
+      slotEndMinute = endDayIdx * 1440 + endH * 60 + endM;
+    }
+
+    if (slotEndMinute < slotStartMinute) {
+      // Cruza el límite de la semana (ej: Sábado noche a Domingo madrugada)
+      return currentWeeklyMinute >= slotStartMinute || currentWeeklyMinute <= slotEndMinute;
+    } else {
+      return currentWeeklyMinute >= slotStartMinute && currentWeeklyMinute <= slotEndMinute;
+    }
   });
 };
 
 export const fetchUsers = async (): Promise<User[]> => {
   try {
-    const { data, error } = await supabase.from('users').select('*').order('name');
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, dni, name, role, legajo, dress_code, reference_image, schedule, assigned_locations, is_active')
+      .order('name');
+
     if (error) throw error;
     
-    const users = (data || []).map(u => ({
+    const users: User[] = (data || []).map(u => ({
       id: u.id,
       dni: u.dni,
       name: u.name,
       role: u.role,
       legajo: u.legajo,
-      password: u.password,
       dressCode: u.dress_code,
       photoRef: u.reference_image,
       schedule: u.schedule || [],
@@ -112,13 +377,21 @@ export const fetchUsers = async (): Promise<User[]> => {
       isActive: u.is_active
     }));
 
-    // Cache users for offline mode
+    // Cache users for offline mode (sin guardar contraseñas)
     localStorage.setItem('cached_users', JSON.stringify(users));
     return users;
-  } catch (err) {
-    console.warn("Error fetching users, trying cache:", err);
+  } catch (err: any) {
+    console.error("Error al obtener usuarios:", err.message || err);
     const cached = localStorage.getItem('cached_users');
-    if (cached) return JSON.parse(cached);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        return parsed.map((u: any) => {
+          const { password, ...rest } = u;
+          return rest;
+        });
+      } catch (e) {}
+    }
     throw err;
   }
 };
@@ -138,8 +411,8 @@ export const fetchLocations = async (): Promise<Location[]> => {
     }));
     localStorage.setItem('cached_locations', JSON.stringify(locs));
     return locs;
-  } catch (err) {
-    console.warn("Error fetching locations, trying cache:", err);
+  } catch (err: any) {
+    console.error("Error al obtener sedes:", err.message || err);
     const cached = localStorage.getItem('cached_locations');
     if (cached) return JSON.parse(cached);
     throw err;
@@ -157,7 +430,7 @@ const mapLog = (l: any): LogEntry => ({
   locationName: l.location_name || 'Ubicación Desconocida',
   locationStatus: l.location_status || 'SKIPPED',
   dressCodeStatus: l.dress_code_status || 'SKIPPED',
-  identityStatus: l.identity_status || 'SKIPPED',
+  identityStatus: 'SKIPPED',
   scheduleStatus: l.schedule_status || 'OFF_SCHEDULE',
   photoEvidence: l.photo_evidence || '',
   aiFeedback: l.ai_feedback || ''
@@ -167,25 +440,24 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
   const timeZone = 'America/Argentina/Buenos_Aires';
   
   const tryFetch = async (days: number) => {
-    const rangeDate = toDate(new Date(), { timeZone });
-    rangeDate.setDate(rangeDate.getDate() - days);
-    rangeDate.setHours(0, 0, 0, 0);
+    const zonedNow = toZonedTime(new Date(), timeZone);
+    const targetDate = new Date(zonedNow);
+    targetDate.setDate(targetDate.getDate() - days);
+    const dateStr = formatInTimeZone(targetDate, timeZone, 'yyyy-MM-dd');
+    const startOfRange = fromZonedTime(`${dateStr}T00:00:00`, timeZone);
 
     return await supabase
       .from('logs')
       .select('*')
-      .gte('timestamp', rangeDate.toISOString())
+      .gte('timestamp', startOfRange.toISOString())
       .order('timestamp', { ascending: false })
-      .limit(5000); // Aumentado para mostrar todos los registros
+      .limit(5000);
   };
 
   try {
-    // Intentar primero con 10 días
     let { data, error, status } = await tryFetch(10);
     
-    // Si falla por timeout, intentar con un rango más corto (5 días)
     if (error && (error.message.includes('timeout') || status === 500)) {
-      console.warn("Fetch de 10 días falló por timeout, intentando con 5 días...");
       const retry = await tryFetch(5);
       data = retry.data;
       error = retry.error;
@@ -193,28 +465,26 @@ export const fetchLogs = async (): Promise<LogEntry[]> => {
     }
     
     if (error) {
-      console.error("Error de Supabase:", error);
+      console.error("Error de Supabase al consultar logs:", error.message);
       throw new Error(`Error ${status}: ${error.message}`);
-    }
-
-    if (!data || data.length === 0) {
-      console.warn("Supabase devolvió 0 registros.");
     }
 
     return (data || []).map(mapLog);
   } catch (err: any) {
-    console.error("Error crítico en fetchLogs:", err);
+    console.error("Error crítico en fetchLogs:", err.message || err);
     throw err;
   }
 };
 
 export const fetchTodayLogs = async (): Promise<LogEntry[]> => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const timeZone = 'America/Argentina/Buenos_Aires';
+  const todayStr = formatInTimeZone(new Date(), timeZone, 'yyyy-MM-dd');
+  const startOfDay = fromZonedTime(`${todayStr}T00:00:00`, timeZone);
+
   const { data, error } = await supabase
     .from('logs')
     .select('*')
-    .gte('timestamp', today.toISOString())
+    .gte('timestamp', startOfDay.toISOString())
     .order('timestamp', { ascending: false });
   if (error) throw error;
   return (data || []).map(mapLog);
@@ -226,42 +496,34 @@ export const fetchLogsByDateRange = async (start: Date, end: Date): Promise<LogE
       throw new Error("Fechas inválidas proporcionadas al filtro.");
     }
 
-    console.log(`Filtrando rango Supabase: ${start.toISOString()} hasta ${end.toISOString()}`);
-
     const { data, error, status } = await supabase
       .from('logs')
       .select('*')
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
       .order('timestamp', { ascending: false })
-      .limit(5000); // Aumentado para mostrar todos los registros
+      .limit(5000);
     
     if (error) {
-      console.error("Error de Supabase en rango:", error);
+      console.error("Error de Supabase en rango de fechas:", error.message);
       throw new Error(`Error ${status}: ${error.message}`);
     }
     return (data || []).map(mapLog);
   } catch (err: any) {
-    console.error("Error crítico en fetchLogsByDateRange:", err);
+    console.error("Error crítico en fetchLogsByDateRange:", err.message || err);
     throw err;
   }
 };
 
-function uuidv4() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
-
 export const addLog = async (log: LogEntry): Promise<string> => {
-  const newId = uuidv4();
-  const logToSave = { ...log, id: newId };
+  const newId = log.id || crypto.randomUUID();
+  const logToSave = { ...log, id: newId, identityStatus: 'SKIPPED' as const };
 
-  // Cache the last log locally for offline support
   try {
     localStorage.setItem(`last_log_${log.userId}`, JSON.stringify(logToSave));
-  } catch (e) { console.error("Error caching last log", e); }
+  } catch (e) {
+    console.error("Error guardando last log local:", e);
+  }
 
   try {
     const { error } = await supabase.from('logs').insert([{
@@ -275,18 +537,27 @@ export const addLog = async (log: LogEntry): Promise<string> => {
       location_name: log.locationName,
       location_status: log.locationStatus,
       dress_code_status: log.dressCodeStatus,
-      identity_status: log.identityStatus,
+      identity_status: 'SKIPPED',
       schedule_status: log.scheduleStatus,
       photo_evidence: log.photoEvidence,
       ai_feedback: log.aiFeedback
     }]);
     if (error) throw error;
     return newId;
-  } catch (err) {
-    console.error("Error guardando log en DB, guardando localmente:", err);
-    const pendingLogs = JSON.parse(localStorage.getItem('pending_logs') || '[]');
-    pendingLogs.push(logToSave);
-    localStorage.setItem('pending_logs', JSON.stringify(pendingLogs));
+  } catch (err: any) {
+    console.error("Error guardando log en base de datos, guardando localmente en cola:", err.message || err);
+    try {
+      const pendingLogs = JSON.parse(localStorage.getItem('pending_logs') || '[]');
+      if (!pendingLogs.some((l: any) => l.id === newId)) {
+        pendingLogs.push(logToSave);
+        localStorage.setItem('pending_logs', JSON.stringify(pendingLogs));
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pending-sync-updated'));
+      }
+    } catch (storageErr) {
+      console.error("No se pudo guardar en pending_logs (localStorage lleno):", storageErr);
+    }
     return newId;
   }
 };
@@ -295,28 +566,32 @@ export const saveUser = async (user: User): Promise<void> => {
   let finalRefImage = user.photoRef;
 
   if (user.photoRef && user.photoRef.startsWith('data:image')) {
-    const fileName = `users/${user.dni}_ref_${new Date().getTime()}.jpg`;
+    const fileName = `users/${user.dni}_ref_${Date.now()}.jpg`;
     finalRefImage = await uploadImage(user.photoRef, 'fichadas', fileName);
   }
 
-  const payload = {
+  const payload: any = {
     dni: user.dni,
     name: user.name,
     role: user.role,
     legajo: user.legajo,
-    password: user.password,
     dress_code: user.dressCode,
     reference_image: finalRefImage,
     schedule: user.schedule,
     assigned_locations: user.assignedLocations,
     is_active: user.isActive ?? true
   };
+
+  // En saveUser, si password viene vacío en una edición, no incluir la columna password en el update
+  if (user.password && user.password.trim() !== '') {
+    payload.password = user.password.trim();
+  }
   
   if (user.id && user.id.length > 0) {
     const { error } = await supabase.from('users').update(payload).eq('id', user.id);
     if (error) throw error;
   } else {
-    const newId = uuidv4();
+    const newId = crypto.randomUUID();
     const { error } = await supabase.from('users').insert([{ ...payload, id: newId }]);
     if (error) throw error;
   }
@@ -327,119 +602,155 @@ export const deleteUser = async (id: string): Promise<void> => {
   if (error) throw error;
 };
 
-export const authenticateUser = async (dni: string, isGuest: boolean = false): Promise<User | null> => {
-  console.log("Iniciando autenticación para DNI:", dni);
-  
-  const MAX_RETRIES = 3;
-  let lastError: any = null;
+export const authenticateUser = async (
+  dni: string, 
+  isGuest: boolean = false, 
+  password?: string
+): Promise<User | null> => {
+  const trimmedDni = (dni || '').trim();
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      console.log(`Intento ${attempt} de ${MAX_RETRIES}...`);
+  // Validar que el DNI sea numérico de 7 u 8 dígitos (ej: '00000000' pasa)
+  const dniRegex = /^\d{7,8}$/;
+  if (!dniRegex.test(trimmedDni)) {
+    throw new Error("El DNI debe ser numérico de 7 u 8 dígitos");
+  }
+
+  let networkFailed = false;
+
+  try {
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dni: trimmedDni, password: password ? password.trim() : undefined })
+    });
+
+    if (response.status === 200) {
+      const data = await response.json();
+      const user = data.user as User;
       
-      // Timeout de 30 segundos por intento (aumentado por problemas de disco)
-      const timeoutPromise = new Promise<null>((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT_DB")), 30000)
-      );
+      // Actualizar usuario en caché local sin contraseña
+      const { password: _, ...safeUser } = user as any;
+      try {
+        const cached = localStorage.getItem('cached_users');
+        let users: User[] = cached ? JSON.parse(cached) : [];
+        const index = users.findIndex((u: User) => u.dni === trimmedDni);
+        if (index >= 0) users[index] = safeUser;
+        else users.push(safeUser);
+        localStorage.setItem('cached_users', JSON.stringify(users));
+      } catch (e) {}
 
-      const authPromise = (async () => {
-        console.log("Llamando a Supabase select users...");
-        const { data, error } = await supabase.from('users').select('*').eq('dni', dni).maybeSingle();
-        console.log("Respuesta cruda de Supabase:", { data, error });
-        if (error) throw error;
-        return data;
-      })();
+      return safeUser;
+    }
 
-      let data = await Promise.race([authPromise, timeoutPromise]);
-      
-      if (!data) {
-        if (!isGuest) {
-          return null;
-        }
-        console.log("Usuario no encontrado en DB, creando perfil de INVITADO...");
-        const newUserId = uuidv4();
-        const guestData = {
-          id: newUserId,
-          dni: dni,
-          name: "Invitado",
-          role: "Invitado",
-          legajo: "INV",
-          dress_code: "N/A",
-          is_active: true,
-          reference_image: null,
-          password: "",
-          schedule: [],
-          assigned_locations: []
-        };
-        
-        try {
-          const { error: insertError } = await supabase.from('users').insert([guestData]);
-          if (insertError) {
-            console.error("Error creando invitado en DB:", insertError);
-            return null;
-          }
-          data = guestData;
-        } catch (e) {
-          console.error("Exception creando invitado:", e);
-          return null;
-        }
+    if (response.status === 404) {
+      if (!isGuest) {
+        return null;
       }
-      
-      if (!data.is_active) {
-        console.log("Usuario desactivado");
-        throw new Error("CUENTA DESACTIVADA");
-      }
-      
-      console.log("Autenticación exitosa para:", data.name);
-      const user = {
-        id: data.id,
-        dni: data.dni,
-        name: data.name,
-        role: data.role,
-        legajo: data.legajo,
-        password: data.password,
-        dressCode: data.dress_code,
-        photoRef: data.reference_image,
-        schedule: data.schedule || [],
-        assignedLocations: Array.isArray(data.assigned_locations) ? data.assigned_locations : [],
-        isActive: data.is_active
+
+      // Modo invitado: crear perfil de invitado en Supabase
+      const newUserId = crypto.randomUUID();
+      const guestData = {
+        id: newUserId,
+        dni: trimmedDni,
+        name: "Invitado",
+        role: "Invitado",
+        legajo: "INV",
+        dress_code: "N/A",
+        is_active: true,
+        reference_image: null,
+        password: "",
+        schedule: [],
+        assigned_locations: []
       };
-      
-      // Update cache for this user
-      const cached = localStorage.getItem('cached_users');
-      let users = cached ? JSON.parse(cached) : [];
-      const index = users.findIndex((u: User) => u.dni === dni);
-      if (index >= 0) users[index] = user;
-      else users.push(user);
-      localStorage.setItem('cached_users', JSON.stringify(users));
-      
-      return user;
 
-    } catch (err: any) {
-      console.error(`Error en intento ${attempt}:`, err);
-      lastError = err;
-      if (err.message === "CUENTA DESACTIVADA") throw err;
-      
-      if (attempt < MAX_RETRIES) await new Promise(resolve => setTimeout(resolve, 2000));
+      try {
+        const { error: insertError } = await supabase.from('users').insert([guestData]);
+        if (insertError) {
+          console.error("Error creando invitado en base de datos:", insertError.message);
+          return null;
+        }
+      } catch (e: any) {
+        console.error("Excepción creando invitado:", e.message || e);
+        return null;
+      }
+
+      const guestUser: User = {
+        id: guestData.id,
+        dni: guestData.dni,
+        name: guestData.name,
+        role: guestData.role,
+        legajo: guestData.legajo,
+        dressCode: guestData.dress_code,
+        photoRef: null,
+        schedule: [],
+        assignedLocations: [],
+        isActive: true
+      };
+
+      return guestUser;
     }
-  }
 
-  // Fallback to cache if DB fails
-  console.warn("DB falló, intentando autenticación offline...");
-  const cached = localStorage.getItem('cached_users');
-  if (cached) {
-    const users = JSON.parse(cached);
-    const user = users.find((u: User) => u.dni === dni);
-    if (user) {
-      console.log("Usuario autenticado desde caché offline:", user.name);
-      return user;
+    if (response.status === 403) {
+      throw new Error("CUENTA DESACTIVADA");
     }
+
+    if (response.status === 401) {
+      const data = await response.json().catch(() => ({}));
+      const err: any = new Error(data.error || "Contraseña incorrecta");
+      if (data.requirePassword) {
+        err.requirePassword = true;
+        err.role = data.role;
+      }
+      throw err;
+    }
+
+    if (response.status === 429) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Demasiados intentos. Espera un minuto.");
+    }
+
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || `Error del servidor (${response.status})`);
+
+  } catch (err: any) {
+    if (
+      err.requirePassword || 
+      err.message === "CUENTA DESACTIVADA" || 
+      err.message === "El DNI debe ser numérico de 7 u 8 dígitos" || 
+      err.message?.includes("Demasiados intentos") || 
+      err.message === "Contraseña incorrecta"
+    ) {
+      throw err;
+    }
+
+    networkFailed = true;
   }
 
-  if (lastError?.message === "TIMEOUT_DB") {
-    throw new Error("La base de datos no responde y no hay datos en caché para este usuario.");
+  // Fallback offline SOLO para empleados no-Admin si la red falló
+  if (networkFailed) {
+    const cached = localStorage.getItem('cached_users');
+    if (cached) {
+      try {
+        const users: User[] = JSON.parse(cached);
+        const user = users.find((u: User) => u.dni === trimmedDni);
+        if (user) {
+          if (user.role === 'Admin') {
+            throw new Error("Los administradores no pueden iniciar sesión sin conexión.");
+          }
+          if (user.isActive === false) {
+            throw new Error("CUENTA DESACTIVADA");
+          }
+          const { password: _, ...safeUser } = user as any;
+          return safeUser;
+        }
+      } catch (e: any) {
+        if (e.message?.includes("administradores") || e.message === "CUENTA DESACTIVADA") throw e;
+      }
+    }
+    throw new Error("Error de conexión y no hay datos offline para este usuario.");
   }
-  throw lastError;
+
+  return null;
 };
 
 export const saveLocation = async (loc: Location): Promise<void> => {
@@ -455,7 +766,7 @@ export const saveLocation = async (loc: Location): Promise<void> => {
     const { error } = await supabase.from('locations').update(payload).eq('id', loc.id);
     if (error) throw error;
   } else {
-    const { error } = await supabase.from('locations').insert([{ ...payload, id: uuidv4() }]);
+    const { error } = await supabase.from('locations').insert([{ ...payload, id: crypto.randomUUID() }]);
     if (error) throw error;
   }
 };
@@ -499,7 +810,6 @@ export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => 
       localStorage.setItem(`last_log_${userId}`, JSON.stringify(dbLog));
     }
 
-    // Check pending logs just in case there's a newer one
     const pendingLogs = JSON.parse(localStorage.getItem('pending_logs') || '[]');
     const userPendingLogs = pendingLogs.filter((l: any) => l.userId === userId || l.user_id === userId);
     let lastPendingLog = null;
@@ -516,9 +826,7 @@ export const fetchLastLog = async (userId: string): Promise<LogEntry | null> => 
     
     return lastPendingLog || dbLog || null;
 
-  } catch (err) {
-    console.warn("Error fetching last log from DB, using local cache:", err);
-    
+  } catch (err: any) {
     const pendingLogs = JSON.parse(localStorage.getItem('pending_logs') || '[]');
     const userPendingLogs = pendingLogs.filter((l: any) => l.userId === userId || l.user_id === userId);
     let lastPendingLog = null;
@@ -550,7 +858,7 @@ export const updateLog = async (log: LogEntry): Promise<void> => {
     location_name: log.locationName,
     location_status: log.locationStatus,
     dress_code_status: log.dressCodeStatus,
-    identity_status: log.identityStatus,
+    identity_status: 'SKIPPED',
     schedule_status: log.scheduleStatus,
     photo_evidence: log.photoEvidence,
     ai_feedback: log.aiFeedback
@@ -573,26 +881,14 @@ export const checkDatabaseHealth = async (): Promise<boolean> => {
     const { error } = await Promise.race([healthPromise, timeoutPromise]) as any;
     return !error;
   } catch (e) {
-    console.warn("Health check warning:", e);
     return false;
   }
 };
 
 export const getServerTime = async (): Promise<string | null> => {
   try {
-    const { data, error } = await supabase.rpc('get_server_time'); // Try RPC first if exists
+    const { data, error } = await supabase.rpc('get_server_time');
     if (!error && data) return data;
-    
-    // Fallback: select now() via raw query or just a simple insert/select if RPC doesn't exist. 
-    // Since we can't easily do raw SQL from client without RPC, we'll use a workaround:
-    // We'll rely on the 'created_at' of a dummy request or just assume health check passed means connection is OK.
-    // Actually, let's try to fetch a single row with a timestamp.
-    // Better: Just return null if we can't easily get it, but we can try to compare with an external API if needed.
-    // Or, we can just check if the DB is reachable.
-    
-    // Let's try a simple query that returns the current time.
-    // Supabase client doesn't expose 'now()' directly easily without RPC.
-    // We will assume client time is correct for now, BUT we will add a UI warning if the date seems "weird" (e.g. < 2024).
     return new Date().toISOString(); 
   } catch (e) {
     return null;
