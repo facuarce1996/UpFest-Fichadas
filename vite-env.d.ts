@@ -1,9 +1,8 @@
-/// <reference types="vite/client" />
+// reference types="vite/client" removed
 
 interface ImportMetaEnv {
-  readonly VITE_SUPABASE_URL: string;
-  readonly VITE_SUPABASE_ANON_KEY: string;
-  readonly VITE_API_KEY?: string;
+  readonly VITE_API_KEY: string;
+  // más variables de entorno...
 }
 
 interface ImportMeta {

@@ -10,97 +10,34 @@ const responseSchema = {
   required: ["identityMatch", "dressCodeMatches", "description"],
 };
 
-// Rate limit simple en memoria por IP (máx 30 por minuto)
-const analyzeRateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(ip: string, maxAttempts = 30, windowMs = 60 * 1000): boolean {
-  const now = Date.now();
-  const entry = analyzeRateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    analyzeRateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  if (entry.count >= maxAttempts) {
-    return false;
-  }
-  entry.count++;
-  return true;
-}
-
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Rate limiting por IP (30 por minuto)
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || 
-             req.headers['x-real-ip'] || 
-             req.socket?.remoteAddress || 
-             '127.0.0.1';
-
-  if (!checkRateLimit(ip, 30, 60 * 1000)) {
-    return res.status(429).json({ error: 'Demasiadas solicitudes al analizador. Por favor espera un minuto.' });
-  }
-
   try {
-    const { currentPhotoBase64, dressCode } = req.body || {};
-
-    // Validar que dressCode sea string de máx 300 caracteres
-    if (typeof dressCode !== 'string' || dressCode.length > 300) {
-      return res.status(400).json({ error: 'El código de vestimenta debe ser un texto de máx 300 caracteres.' });
-    }
-
-    if (!currentPhotoBase64 || typeof currentPhotoBase64 !== 'string') {
-      return res.status(400).json({ error: 'Payload de foto inválido o ausente.' });
-    }
-
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-
-    let currentPhotoData = '';
-
-    if (currentPhotoBase64.startsWith('http://') || currentPhotoBase64.startsWith('https://')) {
-      // Prevención SSRF: Si currentPhotoBase64 es una URL, solo aceptarla si empieza con SUPABASE_URL + '/storage/'
-      const allowedPrefix = `${supabaseUrl}/storage/`;
-      if (!supabaseUrl || !currentPhotoBase64.startsWith(allowedPrefix)) {
-        return res.status(400).json({ error: 'URL de imagen no permitida. Solo se aceptan recursos de Supabase Storage.' });
-      }
-
-      const resp = await fetch(currentPhotoBase64);
-      if (!resp.ok) {
-        return res.status(400).json({ error: 'No se pudo descargar la imagen desde la URL proporcionada.' });
-      }
-
-      const blob = await resp.blob();
-      // Rechazar payloads mayores a 4 MB
-      if (blob.size > 4 * 1024 * 1024) {
-        return res.status(400).json({ error: 'La imagen supera el tamaño máximo permitido de 4 MB.' });
-      }
-
-      const arrayBuffer = await blob.arrayBuffer();
-      currentPhotoData = Buffer.from(arrayBuffer).toString('base64');
-    } else {
-      // Rechazar payloads mayores a 4 MB en base64
-      const byteSize = Buffer.byteLength(currentPhotoBase64, 'utf8');
-      if (byteSize > 4 * 1024 * 1024) {
-        return res.status(400).json({ error: 'La imagen supera el tamaño máximo permitido de 4 MB.' });
-      }
-
-      const parts = currentPhotoBase64.split(",");
-      currentPhotoData = parts.length > 1 ? parts[1] : parts[0];
-    }
-
+    const { currentPhotoBase64, dressCode } = req.body;
     const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
     
     if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
-      return res.status(200).json({ 
-        aiAvailable: false,
-        identityMatch: true, 
-        dressCodeMatches: false, 
+      return res.status(400).json({ 
+        identityMatch: true, dressCodeMatches: true, 
         description: "API Key de IA no configurada o inválida. Acuérdate de configurar la variable en Vercel." 
       });
     }
 
     const ai = new GoogleGenAI({ apiKey });
+    
+    let currentPhotoData = '';
+    if (currentPhotoBase64.startsWith('http')) {
+       const resp = await fetch(currentPhotoBase64);
+       const blob = await resp.blob();
+       const arrayBuffer = await blob.arrayBuffer();
+       currentPhotoData = Buffer.from(arrayBuffer).toString('base64');
+    } else {
+       const parts = currentPhotoBase64.split(",");
+       currentPhotoData = parts.length > 1 ? parts[1] : parts[0];
+    }
 
     const parts = [
       { text: `Actúa como un monitor de RRHH para UpFest.
@@ -131,14 +68,13 @@ export default async function handler(req: any, res: any) {
 
     const result = JSON.parse(text.trim());
     return res.status(200).json({
-      aiAvailable: true,
-      identityMatch: true,
-      dressCodeMatches: result.dressCodeMatches ?? false,
+      identityMatch: result.identityMatch ?? true,
+      dressCodeMatches: result.dressCodeMatches ?? true,
       description: result.description ?? "Validación completada."
     });
 
   } catch (error: any) {
-    console.error("Error en API analyze:", error.message || error);
+    console.error("Error en API:", error);
     let description = `IA no disponible (${error.message || 'Error desconocido'}) — validación omitida`;
     
     if (error.message?.includes("429") || error.message?.includes("Quota exceeded") || error.status === 429) {
@@ -150,9 +86,8 @@ export default async function handler(req: any, res: any) {
     }
 
     return res.status(200).json({
-      aiAvailable: false,
       identityMatch: true,
-      dressCodeMatches: false,
+      dressCodeMatches: true,
       description
     });
   }
