@@ -61,6 +61,7 @@ export interface ValidationResult {
   identityMatch: boolean;
   dressCodeMatches: boolean;
   description: string;
+  aiAvailable?: boolean;
 }
 
 export const DEFAULT_ROLES: Role[] = ['Admin', 'Mozo', 'Bartender', 'Seguridad', 'Limpieza', 'Recepcionista'];
